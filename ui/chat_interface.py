@@ -138,6 +138,19 @@ def show_quick_actions(auth_manager: AuthManager, user_id: str):
         with st.sidebar:
             st.markdown("### ⚡ Quick Actions")
             
+            # Debug button to test Gmail connection
+            if st.button("🔍 Debug Gmail"):
+                client = auth_manager.get_authenticated_client('gmail', 'v1', user_id)
+                if client:
+                    st.success("Gmail client OK")
+                    try:
+                        results = client.users().messages().list(userId='me', maxResults=1).execute()
+                        st.success(f"Gmail API working: {len(results.get('messages', []))} messages")
+                    except Exception as e:
+                        st.error(f"Gmail API failed: {e}")
+                else:
+                    st.error("No Gmail client")
+            
             if st.button("📧 Check Recent Emails"):
                 st.session_state.messages.append({
                     "role": "user", 
