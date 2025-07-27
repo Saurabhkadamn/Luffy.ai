@@ -1,13 +1,22 @@
 import json
 from typing import Dict, Any, List
 from langchain.schema import HumanMessage, SystemMessage
+from langchain_nvidia_ai_endpoints import ChatNVIDIA
 from agents.plan_schema import ExecutionPlan, ExecutionStep, ToolType, ActionType
+from config import settings
 
 class LLMPlanner:
     """Converts natural language requests into structured execution plans"""
     
-    def __init__(self, llm_client):
-        self.llm_client = llm_client
+    def __init__(self):
+        # Create LLM instance with standardized config
+        self.llm = ChatNVIDIA(
+            model="moonshotai/kimi-k2-instruct",
+            api_key=settings.NVIDIA_API_KEY,
+            temperature=0.6,
+            top_p=0.9,
+            max_tokens=4096,
+        )
         self.system_prompt = self._build_system_prompt()
     
     def create_plan(self, user_request: str, user_context: Dict[str, Any] = None) -> ExecutionPlan:
@@ -22,7 +31,7 @@ class LLMPlanner:
                 HumanMessage(content=user_prompt)
             ]
             
-            response = self.llm_client.invoke(messages)
+            response = self.llm.invoke(messages)
             
             # Extract content from LangChain response
             response_content = response.content if hasattr(response, 'content') else str(response)

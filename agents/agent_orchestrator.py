@@ -8,11 +8,10 @@ from agents.plan_schema import WorkflowState
 class AgentOrchestrator:
     """Main coordinator for LangGraph agent workflows"""
     
-    def __init__(self, auth_manager, llm_client):
+    def __init__(self, auth_manager):
         self.auth_manager = auth_manager
-        self.llm_client = llm_client
-        self.planner = LLMPlanner(llm_client)
-        self.graph_builder = GraphBuilder(auth_manager, llm_client)
+        self.planner = LLMPlanner()  # LLM created internally
+        self.graph_builder = GraphBuilder(auth_manager)  # No LLM needed here
     
     def process_user_request(self, user_request: str, user_id: str) -> Generator[str, None, None]:
         """Process user request with streaming updates"""

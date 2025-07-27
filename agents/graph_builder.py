@@ -8,10 +8,10 @@ from agents.data_extractor import DataExtractor
 class GraphBuilder:
     """Builds dynamic LangGraph workflows from execution plans"""
     
-    def __init__(self, auth_manager, llm_client):
+    def __init__(self, auth_manager):
         self.auth_manager = auth_manager
         self.node_factory = NodeFactory(auth_manager)
-        self.data_extractor = DataExtractor(llm_client)
+        self.data_extractor = DataExtractor()  # LLM created internally
     
     def build_graph(self, plan: ExecutionPlan, user_id: str) -> StateGraph:
         """Build executable LangGraph from execution plan"""
@@ -40,7 +40,6 @@ class GraphBuilder:
                 # This step depends on others - edges handled by dependencies
                 pass
             else:
-                # Independent step or first step
                 # Independent step or first step
                 if step.step_index == 1:
                     # Entry point already set

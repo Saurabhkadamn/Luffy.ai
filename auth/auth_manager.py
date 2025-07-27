@@ -8,12 +8,13 @@ from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 import secrets
 from datetime import datetime, timedelta
+from config import settings
 
 class AuthManager:
     """Authentication manager for Google APIs with Streamlit session state"""
     
-    def __init__(self, credentials_file: str = "credentials.json"):
-        self.credentials_file = credentials_file
+    def __init__(self):
+        self.credentials_file = settings.GOOGLE_CREDENTIALS_JSON
         self.scopes = [
             'https://www.googleapis.com/auth/gmail.readonly',
             'https://www.googleapis.com/auth/gmail.send',
@@ -23,7 +24,7 @@ class AuthManager:
             'https://www.googleapis.com/auth/userinfo.profile',
             'openid'
         ]
-        self.redirect_uri = "http://localhost:8501"  # Streamlit default
+        self.redirect_uri = settings.GOOGLE_REDIRECT_URI
     
     def initialize_user_session(self) -> str:
         """Initialize user session with unique ID"""
@@ -91,8 +92,13 @@ class AuthManager:
             flow_key = f"oauth_flow_{user_id}"
             
             if flow_key not in st.session_state:
-                st.error("OAuth flow not found. Please restart authentication.")
-                return False
+                # Recreate flow if not found (common in Streamlit)
+                flow = Flow.from_client_secrets_file(
+                    self.credentials_file,
+                    scopes=self.scopes,
+                    redirect_uri=self.redirect_uri
+                )
+                st.session_state[flow_key] = flow
             
             flow = st.session_state[flow_key]
             
@@ -113,7 +119,8 @@ class AuthManager:
             st.session_state[token_key] = tokens
             
             # Clean up flow from session
-            del st.session_state[flow_key]
+            if flow_key in st.session_state:
+                del st.session_state[flow_key]
             
             # Mark as authenticated
             st.session_state[f"authenticated_{user_id}"] = True

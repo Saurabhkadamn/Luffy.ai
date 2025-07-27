@@ -1,6 +1,4 @@
 import streamlit as st
-import os
-from langchain_nvidia_ai_endpoints import ChatNVIDIA
 from auth.auth_manager import AuthManager
 from ui.landing_page import show_landing_page, show_user_session_info
 from ui.auth_components import show_auth_status, handle_google_auth, show_auth_required_message
@@ -11,40 +9,30 @@ from ui.chat_interface import (
     show_quick_actions,
     show_workflow_progress
 )
-
-def get_llm_client():
-    """Initialize NVIDIA LLM client"""
-    try:
-        # Get API key from environment or Streamlit secrets
-        nvidia_api_key = os.getenv("NVIDIA_API_KEY") or st.secrets.get("NVIDIA_API_KEY")
-        
-        if not nvidia_api_key:
-            st.error("⚠️ NVIDIA API key not found. Please set NVIDIA_API_KEY environment variable.")
-            return None
-        
-        llm = ChatNVIDIA(
-            model="moonshotai/kimi-k2-instruct",
-            api_key=nvidia_api_key,
-            temperature=0.6,
-            top_p=0.9,
-            max_tokens=4096,
-        )
-        
-        return llm
-        
-    except Exception as e:
-        st.error(f"❌ Failed to initialize NVIDIA LLM: {str(e)}")
-        return None
+from config import settings
 
 def main():
-    """Main Streamlit application with NVIDIA LLM"""
+    """Main Streamlit application - No LLM in UI layer"""
     
-    # Initialize auth manager and LLM
+    # Validate configuration on startup
+    try:
+        # This will raise an error if NVIDIA_API_KEY is missing
+        settings.validate()
+    except ValueError as e:
+        st.error(f"⚠️ Configuration Error: {str(e)}")
+        st.stop()
+    
+    # Initialize auth manager (no LLM client needed here)
     auth_manager = AuthManager()
-    llm_client = get_llm_client()
     
-    if not llm_client:
-        st.stop()  # Stop execution if LLM client failed to initialize
+    # Initialize user session first
+    user_id = auth_manager.initialize_user_session()
+    
+    # Check for OAuth callback (before checking demo_started)
+    query_params = st.query_params
+    if 'code' in query_params:
+        # User is returning from Google OAuth - ensure they stay in main app
+        st.session_state['demo_started'] = True
     
     # Check if user has started the demo
     if 'demo_started' not in st.session_state:
@@ -52,9 +40,6 @@ def main():
             st.session_state.demo_started = True
             st.rerun()
         return
-    
-    # Initialize user session
-    user_id = auth_manager.initialize_user_session()
     
     # Show session info in sidebar
     show_user_session_info()
@@ -78,9 +63,9 @@ def main():
         handle_google_auth(auth_manager, user_id)
         show_auth_required_message()
     else:
-        # Show main chat interface with NVIDIA LLM
+        # Show main chat interface (LLM created internally by agents)
         initialize_chat_interface()
-        show_chat_interface(auth_manager, llm_client, user_id)
+        show_chat_interface(auth_manager, user_id)
         
         # Show sidebar controls
         show_chat_controls()

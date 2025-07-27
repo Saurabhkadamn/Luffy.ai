@@ -1,6 +1,7 @@
 import streamlit as st
 from typing import List, Dict, Any, Optional
 from auth.auth_manager import AuthManager
+from agents.agent_orchestrator import AgentOrchestrator
 
 def initialize_chat_interface():
     """Initialize chat interface with session state"""
@@ -50,32 +51,60 @@ def show_chat_interface(auth_manager: AuthManager, user_id: str):
                     "content": "Please connect your Google account to continue."
                 })
         else:
-            # Process with LangGraph agent (placeholder for now)
+            # Process with AgentOrchestrator
             with st.chat_message("assistant"):
-                with st.spinner("🤔 Processing your request..."):
-                    response = process_user_request(prompt, auth_manager, user_id)
-                    st.markdown(response)
+                response_placeholder = st.empty()
+                full_response = ""
+                
+                try:
+                    # Create orchestrator (LLM created internally)
+                    orchestrator = AgentOrchestrator(auth_manager)
                     
+                    # Process request with streaming updates
+                    for update in orchestrator.process_user_request(prompt, user_id):
+                        full_response += update + "\n"
+                        response_placeholder.markdown(full_response)
+                    
+                except Exception as e:
+                    error_msg = f"❌ **Error processing request**: {str(e)}\n\nPlease try again or rephrase your request."
+                    response_placeholder.markdown(error_msg)
+                    full_response = error_msg
+                
+                # Add to message history
                 st.session_state.messages.append({
                     "role": "assistant", 
-                    "content": response
+                    "content": full_response
                 })
 
-def process_user_request(prompt: str, auth_manager: AuthManager, user_id: str) -> str:
-    """Process user request with LangGraph agent (placeholder)"""
-    # TODO: Integrate with actual LangGraph agent
-    
-    # For now, return a placeholder response
-    return f"""
-    ✅ **Request received**: {prompt}
-    
-    🔧 **Status**: Ready to process with authenticated Google clients:
-    - Gmail client: {'✅' if auth_manager.get_authenticated_client('gmail', 'v1', user_id) else '❌'}
-    - Calendar client: {'✅' if auth_manager.get_authenticated_client('calendar', 'v3', user_id) else '❌'}
-    - Drive client: {'✅' if auth_manager.get_authenticated_client('drive', 'v3', user_id) else '❌'}
-    
-    🚧 **Note**: LangGraph agent integration coming next!
-    """
+def show_workflow_progress():
+    """Show current workflow progress"""
+    if 'user_id' in st.session_state:
+        user_id = st.session_state.user_id
+        
+        # Check if there's an active workflow
+        workflow_key = f"workflow_state_{user_id}"
+        if workflow_key in st.session_state:
+            with st.sidebar:
+                st.markdown("### 🔄 Workflow Progress")
+                
+                # Get progress from session state
+                workflow_state = st.session_state[workflow_key]
+                
+                if hasattr(workflow_state, 'plan') and hasattr(workflow_state, 'step_results'):
+                    total_steps = len(workflow_state.plan.steps)
+                    completed_steps = len([r for r in workflow_state.step_results.values() if r.status == "completed"])
+                    
+                    progress = completed_steps / total_steps if total_steps > 0 else 0
+                    st.progress(progress)
+                    st.caption(f"Step {completed_steps} of {total_steps}")
+                    
+                    # Show current status
+                    if workflow_state.status == "executing":
+                        st.info("🚀 Executing workflow...")
+                    elif workflow_state.status == "completed":
+                        st.success("✅ Workflow completed!")
+                    elif workflow_state.status == "failed":
+                        st.error("❌ Workflow failed")
 
 def show_chat_controls():
     """Show chat control buttons"""
@@ -91,8 +120,17 @@ def show_chat_controls():
         
         with col2:
             if st.button("💾 Export Chat"):
-                # TODO: Implement chat export
-                st.info("Export feature coming soon!")
+                # Simple export implementation
+                chat_content = "\n\n".join([
+                    f"**{msg['role'].title()}**: {msg['content']}" 
+                    for msg in st.session_state.messages
+                ])
+                st.download_button(
+                    label="📥 Download",
+                    data=chat_content,
+                    file_name="chat_history.txt",
+                    mime="text/plain"
+                )
 
 def show_quick_actions(auth_manager: AuthManager, user_id: str):
     """Show quick action buttons for common tasks"""

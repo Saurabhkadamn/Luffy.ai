@@ -49,23 +49,53 @@ def handle_google_auth(auth_manager: AuthManager, user_id: str) -> bool:
     """Handle Google OAuth authentication flow"""
     
     # Check if we have auth code in URL params
-    query_params = st.experimental_get_query_params()
+    query_params = st.query_params
     
     if 'code' in query_params:
         # Handle OAuth callback
-        auth_code = query_params['code'][0]
+        auth_code = query_params['code']
         
-        with st.spinner("🔄 Completing Google authentication..."):
-            success = auth_manager.handle_auth_callback(auth_code, user_id)
+        # Store the auth code temporarily to process it
+        if f"processing_auth_{user_id}" not in st.session_state:
+            st.session_state[f"processing_auth_{user_id}"] = True
             
-            if success:
-                st.success("✅ Google account connected successfully!")
-                # Clear URL params and refresh
-                st.experimental_set_query_params()
-                st.rerun()
-            else:
-                st.error("❌ Authentication failed. Please try again.")
-                return False
+            # Ensure demo_started flag is preserved during OAuth
+            st.session_state['demo_started'] = True
+            
+            with st.spinner("🔄 Completing Google authentication..."):
+                # Recreate the OAuth flow since it was lost
+                flow_key = f"oauth_flow_{user_id}"
+                if flow_key not in st.session_state:
+                    # Recreate the flow
+                    from google_auth_oauthlib.flow import Flow
+                    flow = Flow.from_client_secrets_file(
+                        auth_manager.credentials_file,
+                        scopes=auth_manager.scopes,
+                        redirect_uri=auth_manager.redirect_uri
+                    )
+                    st.session_state[flow_key] = flow
+                
+                success = auth_manager.handle_auth_callback(auth_code, user_id)
+                
+                if success:
+                    st.success("✅ Google account connected successfully!")
+                    # Clear processing flag and URL params
+                    del st.session_state[f"processing_auth_{user_id}"]
+                    st.query_params.clear()
+                    
+                    # Force stay in main app (not landing page)
+                    st.session_state['demo_started'] = True
+                    st.rerun()
+                else:
+                    st.error("❌ Authentication failed. Please try again.")
+                    if f"processing_auth_{user_id}" in st.session_state:
+                        del st.session_state[f"processing_auth_{user_id}"]
+                    return False
+        
+        # If already processing, show spinner
+        elif st.session_state.get(f"processing_auth_{user_id}"):
+            st.spinner("🔄 Processing authentication...")
+            return False
     
     # Show authentication button
     auth_url = auth_manager.get_auth_url(user_id)
