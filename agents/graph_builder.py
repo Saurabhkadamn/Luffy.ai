@@ -1,7 +1,7 @@
 import logging
 import traceback
 from typing import Dict, Any, List
-from langgraph.graph import StateGraph, END
+from langgraph.graph import StateGraph, END, START
 from agents.plan_schema import ExecutionPlan, WorkflowState
 from agents.execution_nodes import NodeFactory
 from agents.state_manager import StateManager
@@ -11,7 +11,7 @@ from agents.data_extractor import DataExtractor
 logger = logging.getLogger(__name__)
 
 class GraphBuilder:
-    """Builds dynamic LangGraph workflows from execution plans with comprehensive logging"""
+    """Builds dynamic LangGraph workflows from execution plans with proper edge configuration"""
     
     def __init__(self, auth_manager):
         logger.info("🏗️ Initializing GraphBuilder")
@@ -34,20 +34,20 @@ class GraphBuilder:
             raise
     
     def build_graph(self, plan: ExecutionPlan, user_id: str) -> StateGraph:
-        """Build executable LangGraph from execution plan with comprehensive logging"""
+        """Build executable LangGraph from execution plan with proper LangGraph patterns"""
         
         logger.info(f"🚀 Building graph for plan: {plan.intent}")
         logger.info(f"👤 User ID: {user_id}")
         logger.info(f"📋 Plan has {len(plan.steps)} steps")
         
         try:
-            # Initialize state manager
+            # Initialize state manager for this workflow
             logger.info("🗃️ Initializing StateManager")
             state_manager = StateManager(user_id)
             logger.info("✅ StateManager initialized")
             
-            # Create graph
-            logger.info("📊 Creating StateGraph")
+            # Create graph with WorkflowState
+            logger.info("📊 Creating StateGraph with WorkflowState")
             workflow = StateGraph(WorkflowState)
             logger.info("✅ StateGraph created")
             
@@ -57,47 +57,14 @@ class GraphBuilder:
                 node_name = f"step_{step.step_index}"
                 logger.info(f"➕ Adding node: {node_name} ({step.tool.value} - {step.action.value})")
                 
-                # Create node function
+                # Create node function that returns WorkflowState
                 node_func = self._create_step_node(step, state_manager)
                 workflow.add_node(node_name, node_func)
                 logger.info(f"✅ Node {node_name} added successfully")
             
-            # Add edges based on dependencies
-            logger.info("🔗 Setting up workflow edges")
-            workflow.set_entry_point("step_1")
-            logger.info("✅ Entry point set to step_1")
-            
-            for step in plan.steps:
-                current_node = f"step_{step.step_index}"
-                logger.info(f"🔍 Processing edges for {current_node}")
-                
-                if step.dependencies:
-                    logger.info(f"📋 Step {step.step_index} has dependencies: {step.dependencies}")
-                    # This step depends on others - edges handled by dependencies
-                    pass
-                else:
-                    # Independent step or first step
-                    if step.step_index == 1:
-                        logger.info(f"🚀 Step {step.step_index} is entry point")
-                        # Entry point already set
-                        pass
-                    else:
-                        logger.info(f"🔗 Step {step.step_index} is independent")
-                
-                # Add edges to dependent steps
-                dependent_steps = [s for s in plan.steps if step.step_index in s.dependencies]
-                logger.info(f"🔗 Step {step.step_index} has {len(dependent_steps)} dependent steps")
-                
-                if dependent_steps:
-                    for dep_step in dependent_steps:
-                        next_node = f"step_{dep_step.step_index}"
-                        logger.info(f"➡️ Adding edge: {current_node} -> {next_node}")
-                        workflow.add_edge(current_node, next_node)
-                else:
-                    # Last step or no dependents
-                    if step.step_index == len(plan.steps):
-                        logger.info(f"🏁 Adding edge to END: {current_node} -> END")
-                        workflow.add_edge(current_node, END)
+            # Add edges based on dependencies - FIXED LOGIC
+            logger.info("🔗 Setting up workflow edges with proper dependency handling")
+            self._add_workflow_edges(workflow, plan)
             
             logger.info("🔧 Compiling workflow graph")
             compiled_graph = workflow.compile()
@@ -110,21 +77,76 @@ class GraphBuilder:
             logger.error(traceback.format_exc())
             raise
     
+    def _add_workflow_edges(self, workflow: StateGraph, plan: ExecutionPlan):
+        """Add edges based on step dependencies - FIXED IMPLEMENTATION"""
+        
+        logger.info("🔗 Adding edges based on step dependencies")
+        
+        try:
+            # Track which steps have dependencies satisfied
+            steps_with_dependencies = set()
+            
+            # Add edges FROM dependencies TO dependent steps
+            for step in plan.steps:
+                current_node = f"step_{step.step_index}"
+                logger.info(f"🔍 Processing edges for {current_node}")
+                
+                if step.dependencies:
+                    logger.info(f"📋 Step {step.step_index} has dependencies: {step.dependencies}")
+                    steps_with_dependencies.add(step.step_index)
+                    
+                    # Add edge FROM each dependency TO current step
+                    for dep_step_index in step.dependencies:
+                        dep_node = f"step_{dep_step_index}"
+                        logger.info(f"➡️ Adding edge: {dep_node} -> {current_node}")
+                        workflow.add_edge(dep_node, current_node)
+                else:
+                    logger.info(f"🚀 Step {step.step_index} has no dependencies")
+            
+            # Connect steps with no dependencies to START
+            for step in plan.steps:
+                if not step.dependencies:
+                    current_node = f"step_{step.step_index}"
+                    logger.info(f"🚀 Connecting {current_node} to START")
+                    workflow.add_edge(START, current_node)
+            
+            # Connect steps with no dependents to END
+            logger.info("🏁 Adding edges to END for terminal steps")
+            for step in plan.steps:
+                current_node = f"step_{step.step_index}"
+                
+                # Check if any other step depends on this one
+                has_dependents = any(
+                    step.step_index in other_step.dependencies 
+                    for other_step in plan.steps
+                )
+                
+                if not has_dependents:
+                    logger.info(f"🏁 Adding edge to END: {current_node} -> END")
+                    workflow.add_edge(current_node, END)
+            
+            logger.info("✅ All workflow edges configured successfully")
+            
+        except Exception as e:
+            logger.error(f"❌ Error adding workflow edges: {str(e)}")
+            logger.error(traceback.format_exc())
+            raise
+    
     def _create_step_node(self, step, state_manager):
-        """Create node function for execution step with comprehensive logging"""
+        """Create node function for execution step that returns WorkflowState"""
         
         logger.info(f"🔧 Creating step node for step {step.step_index}: {step.description}")
         
         def step_node(state: WorkflowState) -> WorkflowState:
-            """Execute single step and update state with logging"""
+            """Execute single step and return updated WorkflowState - FIXED"""
             
             logger.info(f"⚡ Executing step {step.step_index}: {step.description}")
             logger.info(f"🔧 Tool: {step.tool.value}, Action: {step.action.value}")
             
             try:
-                # Get execution context
+                # Get execution context from current state
                 logger.info(f"📊 Getting context for step {step.step_index}")
-                context = state_manager.get_context_for_step(step.step_index)
+                context = self._get_context_from_state(state, step.step_index)
                 logger.info(f"✅ Context retrieved for step {step.step_index}")
                 logger.info(f"📋 Context keys: {list(context.keys())}")
                 
@@ -158,21 +180,43 @@ class GraphBuilder:
                     logger.info(f"✅ Data extraction completed for step {step.step_index}")
                     logger.info(f"📊 Extracted data keys: {list(extracted_data.keys())}")
                     
-                    # Update state
+                    # Update step result with extracted data
+                    step_result.extracted_data = extracted_data.get("extracted_data", {})
+                    
+                    # Update state - CRITICAL FIX
                     logger.info(f"📝 Updating state with step {step.step_index} results")
-                    state_manager.update_step_result(step_result, extracted_data)
+                    
+                    # Store step result
+                    state.step_results[step_result.step_index] = step_result
+                    
+                    # Update shared context with extracted data
+                    if "context_updates" in extracted_data:
+                        state.shared_context.update(extracted_data["context_updates"])
+                    
+                    # Add data for future steps
+                    if "for_future_steps" in extracted_data:
+                        state.shared_context.update(extracted_data["for_future_steps"])
+                    
+                    # Update current step
+                    state.current_step = step.step_index + 1
+                    
+                    # Check if workflow completed
+                    if state.current_step > len(state.plan.steps):
+                        state.status = "completed"
+                        logger.info(f"🎉 Workflow completed after step {step.step_index}")
+                    
                     logger.info(f"✅ State updated for step {step.step_index}")
                 else:
                     # Handle failure
                     logger.error(f"❌ Step {step.step_index} failed: {step_result.error_message}")
-                    state_manager.mark_step_failed(step.step_index, step_result.error_message)
+                    
+                    # Store failed step result
+                    state.step_results[step_result.step_index] = step_result
+                    state.status = "failed"
                 
-                # Return updated state
-                logger.info(f"📊 Getting updated state after step {step.step_index}")
-                updated_state = state_manager.get_current_state()
-                logger.info(f"✅ Updated state retrieved for step {step.step_index}")
-                
-                return updated_state
+                # Return updated state - CRITICAL FOR LANGGRAPH
+                logger.info(f"📊 Returning updated state after step {step.step_index}")
+                return state
                 
             except Exception as e:
                 # Handle unexpected errors
@@ -180,9 +224,57 @@ class GraphBuilder:
                 logger.error(traceback.format_exc())
                 
                 logger.info(f"🚨 Marking step {step.step_index} as failed due to exception")
-                state_manager.mark_step_failed(step.step_index, str(e))
                 
-                return state_manager.get_current_state()
+                # Create failed step result
+                from agents.plan_schema import StepResult
+                failed_result = StepResult(
+                    step_index=step.step_index,
+                    tool=step.tool,
+                    action=step.action,
+                    status="failed",
+                    raw_output={},
+                    extracted_data={},
+                    error_message=str(e)
+                )
+                
+                # Update state with failure
+                state.step_results[step.step_index] = failed_result
+                state.status = "failed"
+                
+                return state
         
         logger.info(f"✅ Step node created for step {step.step_index}")
         return step_node
+    
+    def _get_context_from_state(self, state: WorkflowState, step_index: int) -> Dict[str, Any]:
+        """Get execution context from current state - FIXED"""
+        
+        logger.info(f"📊 Getting context from state for step {step_index}")
+        
+        try:
+            step = state.plan.steps[step_index - 1]  # Convert to 0-based index
+            context = {
+                "shared_context": state.shared_context,
+                "step_parameters": step.parameters,
+                "user_id": state.user_id
+            }
+            
+            # Add data from dependent steps
+            for dep_step_index in step.dependencies:
+                if dep_step_index in state.step_results:
+                    dep_result = state.step_results[dep_step_index]
+                    context[f"step_{dep_step_index}_data"] = dep_result.extracted_data
+                    context[f"step_{dep_step_index}_raw"] = dep_result.raw_output
+                    logger.info(f"📋 Added dependency data from step {dep_step_index}")
+            
+            logger.info(f"✅ Context prepared for step {step_index}")
+            return context
+            
+        except Exception as e:
+            logger.error(f"❌ Error getting context from state: {str(e)}")
+            logger.error(traceback.format_exc())
+            return {
+                "shared_context": state.shared_context,
+                "step_parameters": {},
+                "user_id": state.user_id
+            }

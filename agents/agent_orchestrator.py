@@ -14,7 +14,7 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 class AgentOrchestrator:
-    """Main coordinator for LangGraph agent workflows with date context and parameter mapping"""
+    """Main coordinator for LangGraph agent workflows with proper state management"""
     
     def __init__(self, auth_manager):
         logger.info("🚀 Initializing AgentOrchestrator")
@@ -26,7 +26,7 @@ class AgentOrchestrator:
             logger.info("✅ LLMPlanner created successfully")
             
             logger.info("🔧 Creating GraphBuilder instance")
-            self.graph_builder = GraphBuilder(auth_manager)  # No LLM needed here
+            self.graph_builder = GraphBuilder(auth_manager)  # Fixed GraphBuilder
             logger.info("✅ GraphBuilder created successfully")
             
             logger.info("🔧 Creating ParameterMapper instance")
@@ -40,7 +40,7 @@ class AgentOrchestrator:
             raise
     
     def process_user_request(self, user_request: str, user_id: str) -> Generator[str, None, None]:
-        """Process user request with streaming updates and comprehensive logging"""
+        """Process user request with streaming updates and proper LangGraph execution"""
         
         logger.info(f"🎯 Starting request processing for user: {user_id}")
         logger.info(f"📝 User request: {user_request}")
@@ -84,9 +84,9 @@ class AgentOrchestrator:
             workflow_graph = self.graph_builder.build_graph(plan, user_id)
             logger.info("✅ Workflow graph built successfully")
             
-            # Execute workflow with progress updates
-            logger.info("⚡ Starting workflow execution with progress tracking")
-            for update in self._execute_workflow_with_progress(workflow_graph, initial_state, state_manager):
+            # Execute workflow with proper LangGraph patterns
+            logger.info("⚡ Starting LangGraph workflow execution")
+            for update in self._execute_langgraph_workflow(workflow_graph, initial_state, state_manager):
                 yield update
             
             # Step 3: Generate final response
@@ -109,6 +109,67 @@ class AgentOrchestrator:
             logger.error(traceback.format_exc())
             yield f"\n❌ **Error**: {str(e)}"
             yield "\nPlease try rephrasing your request or check your Google account connection."
+    
+    def _execute_langgraph_workflow(self, workflow_graph, initial_state: WorkflowState, 
+                                   state_manager: StateManager) -> Generator[str, None, None]:
+        """Execute LangGraph workflow with proper state handling - FIXED"""
+        
+        logger.info("🔄 Starting LangGraph workflow execution")
+        
+        try:
+            logger.info("⚡ Invoking LangGraph workflow")
+            logger.info(f"📊 Initial state: {initial_state.status}")
+            logger.info(f"📋 Total steps to execute: {len(initial_state.plan.steps)}")
+            
+            # Execute the LangGraph workflow - CRITICAL FIX
+            # LangGraph expects the state object as input
+            logger.info("🚀 Calling workflow_graph.invoke() with initial state")
+            final_state = workflow_graph.invoke(initial_state)
+            logger.info(f"✅ LangGraph workflow execution completed")
+            logger.info(f"📊 Final state type: {type(final_state)}")
+            logger.info(f"📊 Final state status: {final_state.status if hasattr(final_state, 'status') else 'No status'}")
+            
+            # Update state manager with final results
+            if hasattr(final_state, 'step_results'):
+                logger.info(f"📋 Final state has {len(final_state.step_results)} step results")
+                
+                # Update session state with final results
+                state_key = f"workflow_state_{state_manager.user_id}"
+                st.session_state[state_key] = final_state
+                logger.info("✅ Session state updated with final results")
+                
+                # Provide progress updates based on completed steps
+                for step_index, step_result in final_state.step_results.items():
+                    step = final_state.plan.steps[step_index - 1]
+                    
+                    if step_result.status == "completed":
+                        logger.info(f"✅ Step {step_index} completed successfully")
+                        yield f"✅ **Step {step_index}**: {step.description}"
+                        
+                        # Show key outputs
+                        if step_result.extracted_data:
+                            key_data = step_result.extracted_data
+                            logger.info(f"📊 Step {step_index} extracted data: {key_data}")
+                            if len(str(key_data)) < 100:  # Only show short summaries
+                                yield f"   📊 Key result: {key_data}"
+                    
+                    elif step_result.status == "failed":
+                        logger.error(f"❌ Step {step_index} failed: {step_result.error_message}")
+                        yield f"❌ **Step {step_index} failed**: {step_result.error_message}"
+            else:
+                logger.warning("⚠️ Final state doesn't have step_results attribute")
+                # Handle case where state structure is unexpected
+                if isinstance(final_state, dict) and 'step_results' in final_state:
+                    logger.info("📋 Found step_results in dict format")
+                    for step_index, step_result in final_state['step_results'].items():
+                        yield f"✅ **Step {step_index}**: Completed"
+            
+            logger.info("✅ LangGraph workflow monitoring completed")
+            
+        except Exception as e:
+            logger.error(f"❌ LangGraph workflow execution failed: {str(e)}")
+            logger.error(traceback.format_exc())
+            yield f"❌ **Workflow execution failed**: {str(e)}"
     
     def _get_user_context(self, user_id: str) -> Dict[str, Any]:
         """Get user context for planning with date context and logging"""
@@ -182,61 +243,6 @@ class AgentOrchestrator:
                 "current_date": datetime.now().strftime("%Y-%m-%d"),
                 "error": str(e)
             }
-    
-    def _execute_workflow_with_progress(self, workflow_graph, initial_state: WorkflowState, 
-                                      state_manager: StateManager) -> Generator[str, None, None]:
-        """Execute workflow with real-time progress updates and logging"""
-        
-        logger.info("🔄 Starting workflow execution with progress tracking")
-        
-        try:
-            logger.info("⚡ Invoking workflow graph")
-            logger.info(f"📊 Initial state: {initial_state.status}")
-            logger.info(f"📋 Total steps to execute: {len(initial_state.plan.steps)}")
-            
-            # Execute the workflow
-            result = workflow_graph.invoke(initial_state)
-            logger.info(f"✅ Workflow graph execution completed: {type(result)}")
-            
-            # Monitor progress and provide updates
-            logger.info("👀 Monitoring workflow progress")
-            for step_index in range(1, len(initial_state.plan.steps) + 1):
-                logger.info(f"🔍 Checking status of step {step_index}")
-                
-                current_state = state_manager.get_current_state()
-                logger.info(f"📊 Current state status: {current_state.status if current_state else 'None'}")
-                
-                if current_state and step_index in current_state.step_results:
-                    step_result = current_state.step_results[step_index]
-                    step = current_state.plan.steps[step_index - 1]
-                    
-                    logger.info(f"📋 Step {step_index} result: {step_result.status}")
-                    
-                    if step_result.status == "completed":
-                        logger.info(f"✅ Step {step_index} completed successfully")
-                        yield f"✅ **Step {step_index}**: {step.description}"
-                        
-                        # Show key outputs
-                        if step_result.extracted_data:
-                            key_data = step_result.extracted_data
-                            logger.info(f"📊 Step {step_index} extracted data: {key_data}")
-                            if len(str(key_data)) < 100:  # Only show short summaries
-                                yield f"   📊 Key result: {key_data}"
-                    
-                    elif step_result.status == "failed":
-                        logger.error(f"❌ Step {step_index} failed: {step_result.error_message}")
-                        yield f"❌ **Step {step_index} failed**: {step_result.error_message}"
-                        break
-                else:
-                    logger.info(f"⏳ Step {step_index} still in progress")
-                    yield f"⏳ **Step {step_index}**: In progress..."
-            
-            logger.info("✅ Workflow progress monitoring completed")
-            
-        except Exception as e:
-            logger.error(f"❌ Workflow execution failed: {str(e)}")
-            logger.error(traceback.format_exc())
-            yield f"❌ **Workflow execution failed**: {str(e)}"
     
     def _generate_final_response(self, final_results: Dict[str, Any]) -> str:
         """Generate human-friendly final response with logging"""

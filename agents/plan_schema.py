@@ -8,26 +8,25 @@ class ToolType(Enum):
     DRIVE = "drive_tool"
 
 class ActionType(Enum):
-    # Gmail actions
+    # Gmail actions - Simplified
     SEND_EMAIL = "send_email"
-    READ_RECENT_EMAILS = "read_recent_emails"
-    SEARCH_EMAILS = "search_emails_by_filters"
-    GET_EMAIL_THREADS = "get_email_threads"
+    READ_EMAILS = "read_emails"  # was: read_recent_emails
+    SEARCH_EMAILS = "search_emails"  # was: search_emails_by_filters
+    GET_THREADS = "get_threads"  # was: get_email_threads
     
-    # Calendar actions
+    # Calendar actions - Simplified
     CREATE_EVENT = "create_event"
-    CREATE_MEET_EVENT = "create_meet_event"
     LIST_EVENTS = "list_events"
     UPDATE_EVENT = "update_event"
     DELETE_EVENT = "delete_event"
-    GET_MEET_LINK = "get_meet_link_from_event"
+    GET_EVENT = "get_event"  # was: get_meet_link_from_event
     
-    # Drive actions
+    # Drive actions - Simplified
     UPLOAD_FILE = "upload_file"
     SEARCH_FILES = "search_files"
     DOWNLOAD_FILE = "download_file"
     SHARE_FILE = "share_file"
-    LIST_RECENT_FILES = "list_recent_files"
+    LIST_FILES = "list_files"  # was: list_recent_files
 
 @dataclass
 class ExecutionStep:

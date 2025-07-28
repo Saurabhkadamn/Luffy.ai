@@ -160,25 +160,25 @@ class LLMPlanner:
         return None
     
     def _build_system_prompt(self) -> str:
-        logger.info("📝 Building enhanced system prompt with strict JSON requirements")
+        logger.info("📝 Building enhanced system prompt with simplified action names")
         prompt = """
 You are an AI workflow planner for a Google productivity assistant.
 
 CRITICAL: You MUST respond with ONLY valid JSON. No explanations, no markdown, no additional text.
 
-AVAILABLE TOOLS AND ACTIONS WITH EXACT SIGNATURES:
+AVAILABLE TOOLS AND ACTIONS WITH EXACT SIGNATURES - SIMPLIFIED ACTIONS:
 
 1. GMAIL_TOOL:
-   - search_emails_by_filters: 
+   - search_emails: 
      Parameters: sender (str), date_range (tuple), keywords (str/list), has_attachment (bool), max_results (int)
      Example: {"date_range": ["2025-01-28", "2025-01-29"], "max_results": 20}
      NOTE: date_range uses [start_date, end_date] where end_date is EXCLUSIVE
    
-   - read_recent_emails: 
+   - read_emails: 
      Parameters: max_results (int), query (str), include_attachments (bool)
      Example: {"max_results": 10, "include_attachments": false}
    
-   - get_email_threads:
+   - get_threads:
      Parameters: thread_id (str), query (str), include_attachments (bool)  
      Example: {"thread_id": "abc123"} OR {"query": "subject:meeting"}
    
@@ -188,12 +188,8 @@ AVAILABLE TOOLS AND ACTIONS WITH EXACT SIGNATURES:
 
 2. CALENDAR_TOOL:
    - create_event:
-     Parameters: title (str), start_time (str), end_time (str), description (str), attendees (list), location (str)
-     Example: {"title": "Meeting", "start_time": "2025-01-29T14:00:00Z", "end_time": "2025-01-29T15:00:00Z"}
-   
-   - create_meet_event:
-     Parameters: title (str), start_time (str), end_time (str), description (str), attendees (list), location (str)
-     Example: {"title": "Video Call", "start_time": "2025-01-29T14:00:00Z", "end_time": "2025-01-29T15:00:00Z"}
+     Parameters: title (str), start_time (str), end_time (str), description (str), attendees (list), location (str), include_meet (bool)
+     Example: {"title": "Meeting", "start_time": "2025-01-29T14:00:00Z", "end_time": "2025-01-29T15:00:00Z", "include_meet": true}
    
    - list_events:
      Parameters: start_date (str), end_date (str), max_results (int), timezone (str)
@@ -204,6 +200,10 @@ AVAILABLE TOOLS AND ACTIONS WITH EXACT SIGNATURES:
      Example: {"event_id": "event123", "title": "Updated Meeting"}
    
    - delete_event:
+     Parameters: event_id (str)
+     Example: {"event_id": "event123"}
+   
+   - get_event:
      Parameters: event_id (str)
      Example: {"event_id": "event123"}
 
@@ -224,9 +224,9 @@ AVAILABLE TOOLS AND ACTIONS WITH EXACT SIGNATURES:
      Parameters: file_id (str), download_path (str)
      Example: {"file_id": "file123", "download_path": "/downloads/"}
    
-   - list_recent_files:
-     Parameters: max_results (int), file_types (list)
-     Example: {"max_results": 20, "file_types": ["pdf", "doc"]}
+   - list_files:
+     Parameters: max_results (int), file_types (list), recent (bool)
+     Example: {"max_results": 20, "file_types": ["pdf", "doc"], "recent": true}
 
 DATE/TIME USAGE RULES:
 - For Gmail date_range: Use [start_date, end_date] where end_date is EXCLUSIVE
@@ -245,7 +245,7 @@ PLANNING RULES:
 1. Break complex requests into sequential steps
 2. Each step MUST have: step_index, tool, action, description, parameters, dependencies, expected_outputs
 3. Extract required parameters from user request
-4. Use EXACT parameter names from tool signatures above
+4. Use EXACT action names from the simplified list above
 5. Include realistic parameter values
 6. Use template variables like {{meeting_title}} or {{meeting_link}} when data comes from previous steps
 7. Steps that can run in parallel should have no dependencies between them
@@ -257,7 +257,7 @@ MANDATORY JSON RESPONSE FORMAT:
     {
       "step_index": 1,
       "tool": "gmail_tool",
-      "action": "search_emails_by_filters", 
+      "action": "search_emails", 
       "description": "Search for yesterday's emails",
       "parameters": {"date_range": ["2025-07-27", "2025-07-28"], "max_results": 20},
       "dependencies": [],
@@ -273,15 +273,15 @@ ABSOLUTE REQUIREMENTS:
 - NO explanatory text before or after the JSON
 - NO markdown code blocks or formatting
 - Each step MUST include "description" field
-- Use EXACT parameter names from the tool signatures above
+- Use EXACT action names from the simplified list above
 - For Gmail searches, use [start_date, next_day] format for date_range
 - Use actual dates from the context, never "today", "tomorrow" etc.
 """
-        logger.info("✅ Enhanced system prompt built with strict JSON requirements")
+        logger.info("✅ Enhanced system prompt built with simplified action names")
         return prompt
 
     def _build_user_prompt(self, user_request: str, user_context: Dict[str, Any]) -> str:
-        logger.info("✍️ Building user prompt with date context and strict JSON requirements")
+        logger.info("✍️ Building user prompt with date context and simplified action requirements")
         
         context_str = ""
         if user_context:
@@ -343,11 +343,11 @@ ABSOLUTE REQUIREMENTS:
         prompt = f"""
 USER REQUEST: {user_request}{context_str}
 
-Create a detailed execution plan using the EXACT tool signatures provided in the system prompt.
+Create a detailed execution plan using the EXACT simplified action names provided in the system prompt.
 
 CRITICAL REQUIREMENTS:
 1. Respond with ONLY the JSON object - NO explanatory text
-2. Use EXACT parameter names from tool signatures (e.g., "date_range" not "query")
+2. Use EXACT simplified action names (e.g., "search_emails" not "search_emails_by_filters")
 3. Use actual dates from context (e.g., "{current_date}" not "today")
 4. For Gmail date_range, use [start_date, next_day] format because end_date is EXCLUSIVE
 5. MUST include "description" field in each step
@@ -363,7 +363,7 @@ CALENDAR DATE EXAMPLES:
 
 RESPOND WITH ONLY THE JSON OBJECT:
 """
-        logger.info("✅ User prompt built with strict JSON requirements")
+        logger.info("✅ User prompt built with simplified action requirements")
         return prompt
 
     def _parse_plan(self, plan_data: Dict[str, Any]) -> ExecutionPlan:
@@ -430,7 +430,7 @@ RESPOND WITH ONLY THE JSON OBJECT:
             fallback_step = ExecutionStep(
                 step_index=1,
                 tool=ToolType.GMAIL,
-                action=ActionType.READ_RECENT_EMAILS,
+                action=ActionType.READ_EMAILS,  # Updated to use simplified action
                 description=f"Fallback: Check recent emails (Planning error: {error})",
                 parameters={"max_results": 5},
                 dependencies=[],

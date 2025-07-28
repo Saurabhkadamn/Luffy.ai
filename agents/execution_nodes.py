@@ -149,13 +149,13 @@ class GmailNode(ExecutionNode):
             if action == ActionType.SEND_EMAIL:
                 logger.info("📧 Calling send_email method")
                 result = self.tool.send_email(client, **params)
-            elif action == ActionType.READ_RECENT_EMAILS:
+            elif action == ActionType.READ_EMAILS:  # Updated from READ_RECENT_EMAILS
                 logger.info("📬 Calling read_recent_emails method")
                 result = self.tool.read_recent_emails(client, **params)
-            elif action == ActionType.SEARCH_EMAILS:
+            elif action == ActionType.SEARCH_EMAILS:  # Updated from SEARCH_EMAILS
                 logger.info("🔍 Calling search_emails_by_filters method")
                 result = self.tool.search_emails_by_filters(client, **params)
-            elif action == ActionType.GET_EMAIL_THREADS:
+            elif action == ActionType.GET_THREADS:  # Updated from GET_EMAIL_THREADS
                 logger.info("🧵 Calling get_email_threads method")
                 result = self.tool.get_email_threads(client, **params)
             else:
@@ -254,7 +254,7 @@ class CalendarNode(ExecutionNode):
             logger.info(f"✅ Parameters after mapping: {list(mapped_params.keys())}")
             
             # Smart parameter resolution
-            if action in [ActionType.CREATE_EVENT, ActionType.CREATE_MEET_EVENT]:
+            if action == ActionType.CREATE_EVENT:
                 logger.info(f"📅 Processing {action.value} parameters")
                 
                 # Use attendees from previous steps
@@ -274,6 +274,11 @@ class CalendarNode(ExecutionNode):
                     if "description" not in mapped_params:
                         mapped_params["description"] = meeting.get("description", "")
                         logger.info(f"📝 Added description from context: {len(mapped_params['description'])} chars")
+                
+                # Handle include_meet parameter for Google Meet integration
+                if mapped_params.get("include_meet", False):
+                    # This will be handled by the calendar tool to decide between create_event or create_meet_event
+                    logger.info("🎥 Google Meet requested for event")
             
             logger.info(f"✅ Calendar parameters fully prepared: {list(mapped_params.keys())}")
             return mapped_params
@@ -292,10 +297,15 @@ class CalendarNode(ExecutionNode):
         try:
             if action == ActionType.CREATE_EVENT:
                 logger.info("📅 Calling create_event method")
-                result = self.tool.create_event(client, **params)
-            elif action == ActionType.CREATE_MEET_EVENT:
-                logger.info("🎥 Calling create_meet_event method")
-                result = self.tool.create_meet_event(client, **params)
+                # Check if Google Meet is requested
+                if params.get("include_meet", False):
+                    # Remove include_meet from params before calling tool
+                    params_copy = params.copy()
+                    params_copy.pop("include_meet", None)
+                    logger.info("🎥 Calling create_meet_event method")
+                    result = self.tool.create_meet_event(client, **params_copy)
+                else:
+                    result = self.tool.create_event(client, **params)
             elif action == ActionType.LIST_EVENTS:
                 logger.info("📋 Calling list_events method")
                 result = self.tool.list_events(client, **params)
@@ -305,7 +315,7 @@ class CalendarNode(ExecutionNode):
             elif action == ActionType.DELETE_EVENT:
                 logger.info("🗑️ Calling delete_event method")
                 result = self.tool.delete_event(client, **params)
-            elif action == ActionType.GET_MEET_LINK:
+            elif action == ActionType.GET_EVENT:  # Updated from GET_MEET_LINK
                 logger.info("🔗 Calling get_meet_link_from_event method")
                 result = self.tool.get_meet_link_from_event(client, **params)
             else:
@@ -412,6 +422,14 @@ class DriveNode(ExecutionNode):
                     mapped_params["email_addresses"] = shared_context["meeting_attendees"]
                     logger.info(f"✅ Added share recipients from shared context: {len(mapped_params['email_addresses']) if isinstance(mapped_params['email_addresses'], list) else 1}")
             
+            elif action == ActionType.LIST_FILES:  # Updated from LIST_RECENT_FILES
+                logger.info("📁 Processing LIST_FILES parameters")
+                
+                # Handle recent parameter for backwards compatibility
+                if mapped_params.get("recent", True):
+                    # This will be used to determine sorting and filtering in the tool
+                    logger.info("📅 Recent files requested")
+            
             logger.info(f"✅ Drive parameters fully prepared: {list(mapped_params.keys())}")
             return mapped_params
             
@@ -439,7 +457,7 @@ class DriveNode(ExecutionNode):
             elif action == ActionType.SHARE_FILE:
                 logger.info("🔗 Calling share_file method")
                 result = self.tool.share_file(client, **params)
-            elif action == ActionType.LIST_RECENT_FILES:
+            elif action == ActionType.LIST_FILES:  # Updated from LIST_RECENT_FILES
                 logger.info("📋 Calling list_recent_files method")
                 result = self.tool.list_recent_files(client, **params)
             else:
