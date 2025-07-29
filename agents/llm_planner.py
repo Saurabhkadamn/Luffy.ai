@@ -10,56 +10,65 @@ from config import settings
 # Configure logging
 logger = logging.getLogger(__name__)
 
-class LLMPlanner:
-    """Converts natural language requests into structured execution plans with date context and strict JSON format"""
+class StreamlinedLLMPlanner:
+    """
+    Streamlined LLM planner for generating execution plans.
+    
+    Simplified to work with LangChain tools and ToolNode execution.
+    Removes complex parameter mapping since tools now handle their own validation.
+    """
     
     def __init__(self):
-        logger.info("🤖 Initializing LLMPlanner")
+        logger.info("🤖 Initializing StreamlinedLLMPlanner")
         
         try:
-            # Create LLM instance with standardized config
-            logger.info("🔧 Creating NVIDIA ChatNVIDIA instance")
+            # Create LLM instance with optimized config
+            logger.info("🔧 Creating ChatNVIDIA instance for planning")
             logger.info(f"🔑 Using API key: {'*' * 20}{settings.NVIDIA_API_KEY[-4:] if settings.NVIDIA_API_KEY else 'MISSING'}")
             
             self.llm = ChatNVIDIA(
                 model="moonshotai/kimi-k2-instruct",
                 api_key=settings.NVIDIA_API_KEY,
-                temperature=0.6,
+                temperature=0.3,  # Lower temperature for more consistent planning
                 top_p=0.9,
                 max_tokens=4096,
             )
             logger.info("✅ ChatNVIDIA instance created successfully")
             
-            logger.info("📝 Building system prompt")
+            logger.info("📝 Building streamlined system prompt")
             self.system_prompt = self._build_system_prompt()
             logger.info(f"✅ System prompt built (length: {len(self.system_prompt)} chars)")
             
-            logger.info("✅ LLMPlanner initialization complete")
+            logger.info("✅ StreamlinedLLMPlanner initialization complete")
             
         except Exception as e:
-            logger.error(f"❌ Failed to initialize LLMPlanner: {str(e)}")
+            logger.error(f"❌ Failed to initialize StreamlinedLLMPlanner: {str(e)}")
             logger.error(traceback.format_exc())
             raise
     
     def create_plan(self, user_request: str, user_context: Dict[str, Any] = None) -> ExecutionPlan:
-        """Generate execution plan from user request with comprehensive logging"""
+        """
+        Generate execution plan from user request.
         
+        Simplified planning focused on tool selection and sequencing
+        rather than complex parameter mapping.
+        """
         logger.info(f"📋 Creating plan for request: {user_request}")
         logger.info(f"📊 User context: {user_context}")
         
         try:
-            logger.info("✍️ Building user prompt")
-            user_prompt = self._build_user_prompt(user_request, user_context)
-            logger.info(f"✅ User prompt built (length: {len(user_prompt)} chars)")
+            logger.info("✍️ Building planning prompt")
+            user_prompt = self._build_planning_prompt(user_request, user_context)
+            logger.info(f"✅ Planning prompt built (length: {len(user_prompt)} chars)")
             
             logger.info("💬 Preparing LangChain messages")
             messages = [
                 SystemMessage(content=self.system_prompt),
                 HumanMessage(content=user_prompt)
             ]
-            logger.info(f"✅ Messages prepared (system: {len(self.system_prompt)} chars, user: {len(user_prompt)} chars)")
+            logger.info("✅ Messages prepared for LLM")
             
-            logger.info("🚀 Invoking LLM")
+            logger.info("🚀 Invoking LLM for plan generation")
             response = self.llm.invoke(messages)
             logger.info("✅ LLM response received")
             
@@ -68,11 +77,9 @@ class LLMPlanner:
             logger.info(f"📄 Response content length: {len(response_content)} chars")
             logger.info(f"📄 Response preview: {response_content[:200]}...")
             
-            # Clean the response content to extract JSON
+            # Clean and parse JSON response
+            logger.info("🧹 Cleaning and parsing JSON response")
             cleaned_content = self._clean_json_response(response_content)
-            logger.info(f"🧹 Cleaned content length: {len(cleaned_content)} chars")
-            
-            logger.info("🔄 Parsing JSON response")
             plan_data = json.loads(cleaned_content)
             logger.info("✅ JSON parsed successfully")
             logger.info(f"📊 Plan data keys: {list(plan_data.keys())}")
@@ -82,28 +89,32 @@ class LLMPlanner:
             logger.info(f"✅ ExecutionPlan created: {execution_plan.intent}")
             logger.info(f"📋 Plan has {len(execution_plan.steps)} steps")
             
+            # Validate plan
+            validation_issues = self._validate_plan(execution_plan)
+            if validation_issues:
+                logger.warning(f"⚠️ Plan validation issues: {validation_issues}")
+                # Continue anyway - tools will handle parameter validation
+            
             return execution_plan
             
         except json.JSONDecodeError as e:
             logger.error(f"❌ JSON parsing error: {str(e)}")
-            logger.error(f"📄 Raw response that failed to parse: {response_content}")
+            logger.error(f"📄 Raw response: {response_content}")
             
-            # Try to extract JSON from response if it's wrapped in other text
+            # Try to extract JSON from response
             try:
                 logger.info("🔍 Attempting to extract JSON from response")
                 json_str = self._extract_json_from_text(response_content)
                 
                 if json_str:
-                    logger.info(f"🔍 Extracted JSON: {json_str[:200]}...")
+                    logger.info("🔍 Extracted JSON successfully")
                     plan_data = json.loads(json_str)
-                    logger.info("✅ Extracted JSON parsed successfully")
-                    
                     execution_plan = self._parse_plan(plan_data)
                     logger.info(f"✅ ExecutionPlan created from extracted JSON: {execution_plan.intent}")
                     return execution_plan
                 else:
                     logger.error("❌ No valid JSON found in response")
-                    raise e
+                    return self._create_fallback_plan(user_request, f"JSON parsing error: {str(e)}")
                     
             except Exception as extract_error:
                 logger.error(f"❌ JSON extraction also failed: {str(extract_error)}")
@@ -112,16 +123,159 @@ class LLMPlanner:
         except Exception as e:
             logger.error(f"❌ General error in create_plan: {str(e)}")
             logger.error(traceback.format_exc())
-            # Fallback plan for errors
             return self._create_fallback_plan(user_request, str(e))
+    
+    def _build_system_prompt(self) -> str:
+        """Build streamlined system prompt focused on tool orchestration"""
+        logger.info("📝 Building streamlined system prompt")
+        
+        prompt = """
+You are an AI workflow planner for a Google productivity assistant with Gmail, Calendar, and Drive integration.
+
+CRITICAL: Respond with ONLY valid JSON. No explanations, no markdown, no additional text.
+
+AVAILABLE TOOLS (Simplified):
+
+1. GMAIL TOOLS:
+   - send_email_tool: Send emails to recipients
+   - search_emails_tool: Search emails with filters (sender, date_range, keywords)
+   - read_recent_emails_tool: Read recent emails from inbox
+   - get_email_threads_tool: Get email conversation threads
+
+2. CALENDAR TOOLS:
+   - create_calendar_event_tool: Create events with optional Google Meet
+   - list_calendar_events_tool: List events in date range
+   - update_calendar_event_tool: Update existing events
+   - delete_calendar_event_tool: Delete events
+   - get_calendar_event_tool: Get event details
+
+3. DRIVE TOOLS:
+   - upload_file_to_drive_tool: Upload files to Drive
+   - search_files_in_drive_tool: Search Drive files
+   - share_drive_file_tool: Share files with users
+   - download_drive_file_tool: Download files
+   - list_recent_drive_files_tool: List recent files
+   - get_drive_file_info_tool: Get file details
+
+PLANNING PRINCIPLES:
+1. Break complex requests into logical steps
+2. Use simple, specific tool names from the list above
+3. Include realistic parameter values in JSON format
+4. Consider dependencies between steps
+5. Focus on workflow orchestration, not parameter details
+6. Use template variables for data that flows between steps
+
+PARAMETER GUIDELINES:
+- Use actual dates from context (never "today", "tomorrow")
+- For Gmail: date_range as ["start_date", "end_date"] in YYYY-MM-DD format
+- For Calendar: times in ISO format "YYYY-MM-DDTHH:MM:SSZ"
+- For shared data: use template variables like "{{attendee_emails}}" or "{{meeting_link}}"
+- Keep parameters simple - tools will handle validation
+
+MANDATORY JSON RESPONSE FORMAT:
+{
+  "intent": "Brief description of what user wants to accomplish",
+  "steps": [
+    {
+      "step_index": 1,
+      "tool": "gmail_tool",
+      "action": "search_emails_tool",
+      "description": "Human-readable description of this step",
+      "parameters": {
+        "sender": "john@company.com",
+        "max_results": 10
+      },
+      "dependencies": [],
+      "expected_outputs": ["email_addresses", "contact_list"]
+    },
+    {
+      "step_index": 2,
+      "tool": "calendar_tool", 
+      "action": "create_calendar_event_tool",
+      "description": "Create meeting with found contacts",
+      "parameters": {
+        "title": "Team Meeting",
+        "start_time": "2025-01-31T14:00:00Z",
+        "end_time": "2025-01-31T15:00:00Z",
+        "attendees": "{{contact_list}}",
+        "include_meet": true
+      },
+      "dependencies": [1],
+      "expected_outputs": ["event_id", "meet_link"]
+    }
+  ],
+  "estimated_duration": "45 seconds",
+  "requires_confirmation": false
+}
+
+IMPORTANT RULES:
+- Use EXACT tool names from the list above
+- Each step MUST have a clear "description" field
+- Use template variables ({{variable_name}}) for data from previous steps
+- Keep dependencies simple and logical
+- Focus on high-level workflow, not parameter complexity
+
+RESPOND WITH ONLY THE JSON OBJECT ABOVE.
+"""
+        logger.info("✅ Streamlined system prompt built")
+        return prompt
+    
+    def _build_planning_prompt(self, user_request: str, user_context: Dict[str, Any]) -> str:
+        """Build user prompt with context"""
+        logger.info("✍️ Building planning prompt with context")
+        
+        # Build context string
+        context_str = ""
+        if user_context:
+            context_items = []
+            
+            # Add date/time context
+            if user_context.get("current_date"):
+                context_items.append(f"Current Date: {user_context['current_date']}")
+            if user_context.get("tomorrow"):
+                context_items.append(f"Tomorrow: {user_context['tomorrow']}")
+            if user_context.get("yesterday"):
+                context_items.append(f"Yesterday: {user_context['yesterday']}")
+            
+            # Add user info
+            if user_context.get("user_email"):
+                context_items.append(f"User Email: {user_context['user_email']}")
+            if user_context.get("authenticated_services"):
+                context_items.append(f"Available Services: {', '.join(user_context['authenticated_services'])}")
+            
+            if context_items:
+                context_str = f"\n\nCONTEXT:\n" + "\n".join(context_items)
+        
+        prompt = f"""
+USER REQUEST: {user_request}{context_str}
+
+Create a step-by-step execution plan using the available tools.
+
+REQUIREMENTS:
+1. Respond with ONLY the JSON object - NO explanatory text
+2. Use EXACT tool names from the system prompt
+3. Use actual dates from context where provided
+4. Include clear step descriptions
+5. Set up proper dependencies between steps
+6. Use template variables for data flow between steps
+
+FOCUS ON:
+- Breaking the request into logical steps
+- Selecting the right tools for each step
+- Creating a clear execution sequence
+- Using realistic parameter values
+
+RESPOND WITH ONLY THE JSON OBJECT:
+"""
+        logger.info("✅ Planning prompt built")
+        return prompt
     
     def _clean_json_response(self, content: str) -> str:
         """Clean LLM response to extract pure JSON"""
-        
         # Remove markdown code blocks
         content = content.replace('```json', '').replace('```', '')
         
-        # Remove common prefixes
+        # Remove common prefixes and explanatory text
         lines = content.split('\n')
         cleaned_lines = []
         json_started = False
@@ -129,28 +283,19 @@ class LLMPlanner:
         for line in lines:
             stripped = line.strip()
             
-            # Skip explanation lines before JSON
             if not json_started:
                 if stripped.startswith('{'):
                     json_started = True
                     cleaned_lines.append(line)
-                elif stripped.startswith('"intent"') or stripped.startswith('"steps"'):
-                    # Sometimes JSON starts without opening brace on first line
-                    json_started = True
-                    cleaned_lines.append('{')
-                    cleaned_lines.append(line)
-                # Skip lines that look like explanations
-                elif any(word in stripped.lower() for word in ['search', 'find', 'using', 'tool', 'july', 'will', 'emails']):
-                    continue
+                # Skip explanatory lines before JSON
+                continue
             else:
                 cleaned_lines.append(line)
         
         return '\n'.join(cleaned_lines).strip()
     
     def _extract_json_from_text(self, text: str) -> str:
-        """Extract JSON object from text that might contain other content"""
-        
-        # Find JSON boundaries
+        """Extract JSON object from text"""
         start_idx = text.find('{')
         end_idx = text.rfind('}')
         
@@ -159,218 +304,9 @@ class LLMPlanner:
         
         return None
     
-    def _build_system_prompt(self) -> str:
-        logger.info("📝 Building enhanced system prompt with simplified action names")
-        prompt = """
-You are an AI workflow planner for a Google productivity assistant.
-
-CRITICAL: You MUST respond with ONLY valid JSON. No explanations, no markdown, no additional text.
-
-AVAILABLE TOOLS AND ACTIONS WITH EXACT SIGNATURES - SIMPLIFIED ACTIONS:
-
-1. GMAIL_TOOL:
-   - search_emails: 
-     Parameters: sender (str), date_range (tuple), keywords (str/list), has_attachment (bool), max_results (int)
-     Example: {"date_range": ["2025-01-28", "2025-01-29"], "max_results": 20}
-     NOTE: date_range uses [start_date, end_date] where end_date is EXCLUSIVE
-   
-   - read_emails: 
-     Parameters: max_results (int), query (str), include_attachments (bool)
-     Example: {"max_results": 10, "include_attachments": false}
-   
-   - get_threads:
-     Parameters: thread_id (str), query (str), include_attachments (bool)  
-     Example: {"thread_id": "abc123"} OR {"query": "subject:meeting"}
-   
-   - send_email:
-     Parameters: to (str/list), subject (str), body (str), cc (str/list), bcc (str/list), attachments (list)
-     Example: {"to": ["user@email.com"], "subject": "Meeting", "body": "Hi there"}
-
-2. CALENDAR_TOOL:
-   - create_event:
-     Parameters: title (str), start_time (str), end_time (str), description (str), attendees (list), location (str), include_meet (bool)
-     Example: {"title": "Meeting", "start_time": "2025-01-29T14:00:00Z", "end_time": "2025-01-29T15:00:00Z", "include_meet": true}
-   
-   - list_events:
-     Parameters: start_date (str), end_date (str), max_results (int), timezone (str)
-     Example: {"start_date": "2025-01-28", "end_date": "2025-01-28", "max_results": 10}
-   
-   - update_event:
-     Parameters: event_id (str), title (str), start_time (str), end_time (str), attendees (list)
-     Example: {"event_id": "event123", "title": "Updated Meeting"}
-   
-   - delete_event:
-     Parameters: event_id (str)
-     Example: {"event_id": "event123"}
-   
-   - get_event:
-     Parameters: event_id (str)
-     Example: {"event_id": "event123"}
-
-3. DRIVE_TOOL:
-   - search_files:
-     Parameters: query (str), file_type (str), folder_id (str), max_results (int), include_trashed (bool)
-     Example: {"query": "project document", "file_type": "pdf", "max_results": 10}
-   
-   - upload_file:
-     Parameters: file_path (str), filename (str), folder_id (str), description (str), make_public (bool)
-     Example: {"filename": "document.pdf", "description": "Project file"}
-   
-   - share_file:
-     Parameters: file_id (str), email_addresses (list), role (str), make_public (bool)
-     Example: {"file_id": "file123", "email_addresses": ["user@email.com"], "role": "reader"}
-   
-   - download_file:
-     Parameters: file_id (str), download_path (str)
-     Example: {"file_id": "file123", "download_path": "/downloads/"}
-   
-   - list_files:
-     Parameters: max_results (int), file_types (list), recent (bool)
-     Example: {"max_results": 20, "file_types": ["pdf", "doc"], "recent": true}
-
-DATE/TIME USAGE RULES:
-- For Gmail date_range: Use [start_date, end_date] where end_date is EXCLUSIVE
-  * "today's emails": ["2025-07-28", "2025-07-29"] 
-  * "yesterday's emails": ["2025-07-27", "2025-07-28"]
-- For Calendar times: Use ISO format "2025-01-29T14:00:00Z"
-- For Calendar dates: Use "YYYY-MM-DD" format
-- Always use actual dates from context, never relative terms like "today", "tomorrow"
-
-CRITICAL GMAIL API REQUIREMENTS:
-- Gmail date_range MUST be [start_date, next_day] because end_date is EXCLUSIVE
-- Example: For July 27th emails, use ["2025-07-27", "2025-07-28"]
-- This ensures the Gmail API searches correctly with after:2025/07/27 before:2025/07/28
-
-PLANNING RULES:
-1. Break complex requests into sequential steps
-2. Each step MUST have: step_index, tool, action, description, parameters, dependencies, expected_outputs
-3. Extract required parameters from user request
-4. Use EXACT action names from the simplified list above
-5. Include realistic parameter values
-6. Use template variables like {{meeting_title}} or {{meeting_link}} when data comes from previous steps
-7. Steps that can run in parallel should have no dependencies between them
-
-MANDATORY JSON RESPONSE FORMAT:
-{
-  "intent": "brief description of user goal",
-  "steps": [
-    {
-      "step_index": 1,
-      "tool": "gmail_tool",
-      "action": "search_emails", 
-      "description": "Search for yesterday's emails",
-      "parameters": {"date_range": ["2025-07-27", "2025-07-28"], "max_results": 20},
-      "dependencies": [],
-      "expected_outputs": ["email_addresses", "message_ids"]
-    }
-  ],
-  "estimated_duration": "30 seconds",
-  "requires_confirmation": false
-}
-
-ABSOLUTE REQUIREMENTS: 
-- Respond with ONLY the JSON object above
-- NO explanatory text before or after the JSON
-- NO markdown code blocks or formatting
-- Each step MUST include "description" field
-- Use EXACT action names from the simplified list above
-- For Gmail searches, use [start_date, next_day] format for date_range
-- Use actual dates from the context, never "today", "tomorrow" etc.
-"""
-        logger.info("✅ Enhanced system prompt built with simplified action names")
-        return prompt
-
-    def _build_user_prompt(self, user_request: str, user_context: Dict[str, Any]) -> str:
-        logger.info("✍️ Building user prompt with date context and simplified action requirements")
-        
-        context_str = ""
-        if user_context:
-            # Format user context nicely with date information
-            context_items = []
-            
-            # Add current date/time context
-            if user_context.get("current_date"):
-                context_items.append(f"Current Date: {user_context['current_date']}")
-                logger.info(f"📅 Added current date to context: {user_context['current_date']}")
-            
-            if user_context.get("current_time"):
-                context_items.append(f"Current Time: {user_context['current_time']}")
-                
-            if user_context.get("day_of_week"):
-                context_items.append(f"Day of Week: {user_context['day_of_week']}")
-                
-            if user_context.get("tomorrow"):
-                context_items.append(f"Tomorrow: {user_context['tomorrow']}")
-                
-            if user_context.get("yesterday"):
-                context_items.append(f"Yesterday: {user_context['yesterday']}")
-                
-            if user_context.get("this_week_start") and user_context.get("this_week_end"):
-                context_items.append(f"This Week: {user_context['this_week_start']} to {user_context['this_week_end']}")
-            
-            # Add user info
-            if user_context.get("user_email"):
-                context_items.append(f"User Email: {user_context['user_email']}")
-                logger.info(f"📧 Added user email to context")
-            if user_context.get("user_name"):
-                context_items.append(f"User Name: {user_context['user_name']}")
-                logger.info(f"👤 Added user name to context")
-            if user_context.get("authenticated_services"):
-                context_items.append(f"Available Services: {', '.join(user_context['authenticated_services'])}")
-                logger.info(f"🔧 Added services to context: {user_context['authenticated_services']}")
-            
-            if context_items:
-                context_str = f"\n\nCURRENT CONTEXT:\n" + "\n".join(context_items)
-                logger.info(f"✅ Context string built: {len(context_str)} chars")
-        
-        # Calculate next day for Gmail API exclusive end dates
-        current_date = user_context.get('current_date', '2025-07-28')
-        yesterday = user_context.get('yesterday', '2025-07-27')
-        tomorrow = user_context.get('tomorrow', '2025-07-29')
-        
-        # For Gmail API, we need the day AFTER for exclusive end dates
-        from datetime import datetime, timedelta
-        try:
-            current_dt = datetime.strptime(current_date, '%Y-%m-%d')
-            next_day = (current_dt + timedelta(days=1)).strftime('%Y-%m-%d')
-            
-            yesterday_dt = datetime.strptime(yesterday, '%Y-%m-%d')
-            yesterday_next = (yesterday_dt + timedelta(days=1)).strftime('%Y-%m-%d')
-        except:
-            next_day = '2025-07-29'
-            yesterday_next = '2025-07-28'
-        
-        prompt = f"""
-USER REQUEST: {user_request}{context_str}
-
-Create a detailed execution plan using the EXACT simplified action names provided in the system prompt.
-
-CRITICAL REQUIREMENTS:
-1. Respond with ONLY the JSON object - NO explanatory text
-2. Use EXACT simplified action names (e.g., "search_emails" not "search_emails_by_filters")
-3. Use actual dates from context (e.g., "{current_date}" not "today")
-4. For Gmail date_range, use [start_date, next_day] format because end_date is EXCLUSIVE
-5. MUST include "description" field in each step
-6. Ensure all parameters match the expected tool method signatures
-7. Use template variables for data that comes from previous steps
-
-GMAIL DATE EXAMPLES based on current context:
-- "today's emails" → {{"date_range": ["{current_date}", "{next_day}"], "max_results": 20}}
-- "yesterday's emails" → {{"date_range": ["{yesterday}", "{yesterday_next}"], "max_results": 20}}
-
-CALENDAR DATE EXAMPLES:
-- "tomorrow's meeting" → {{"start_time": "{tomorrow}T14:00:00Z", "end_time": "{tomorrow}T15:00:00Z"}}
-
-RESPOND WITH ONLY THE JSON OBJECT:
-"""
-        logger.info("✅ User prompt built with simplified action requirements")
-        return prompt
-
     def _parse_plan(self, plan_data: Dict[str, Any]) -> ExecutionPlan:
-        """Convert JSON plan to ExecutionPlan object with logging"""
-        
+        """Convert JSON plan to ExecutionPlan object"""
         logger.info("🏗️ Parsing plan data to ExecutionPlan")
-        logger.info(f"📊 Plan data structure: {list(plan_data.keys())}")
         
         try:
             steps = []
@@ -380,31 +316,37 @@ RESPOND WITH ONLY THE JSON OBJECT:
             for i, step_data in enumerate(step_data_list):
                 logger.info(f"🔄 Processing step {i+1}: {step_data.get('description', 'No description')}")
                 
-                try:
-                    # Ensure required fields exist with defaults
-                    step = ExecutionStep(
-                        step_index=step_data["step_index"],
-                        tool=ToolType(step_data["tool"]),
-                        action=ActionType(step_data["action"]),
-                        description=step_data.get("description", f"Execute {step_data['action']} action"),
-                        parameters=step_data.get("parameters", {}),
-                        dependencies=step_data.get("dependencies", []),
-                        expected_outputs=step_data.get("expected_outputs", [])
-                    )
-                    steps.append(step)
-                    logger.info(f"✅ Step {i+1} parsed successfully: {step.tool.value} - {step.action.value}")
-                    logger.info(f"📋 Step {i+1} parameters: {list(step.parameters.keys())}")
-                    
-                    # Log Gmail date_range specifically for debugging
-                    if step.tool.value == "gmail_tool" and "date_range" in step.parameters:
-                        logger.info(f"📅 Gmail date_range for step {i+1}: {step.parameters['date_range']}")
-                    
-                except Exception as step_error:
-                    logger.error(f"❌ Error parsing step {i+1}: {str(step_error)}")
-                    logger.error(f"📊 Step data: {step_data}")
-                    raise
+                # Map action to our ActionType enum
+                action_name = step_data.get("action", "")
+                tool_name = step_data.get("tool", "")
+                
+                # Extract tool type from tool name
+                if "gmail" in tool_name:
+                    tool_type = ToolType.GMAIL
+                elif "calendar" in tool_name:
+                    tool_type = ToolType.CALENDAR
+                elif "drive" in tool_name:
+                    tool_type = ToolType.DRIVE
+                else:
+                    logger.warning(f"⚠️ Unknown tool type: {tool_name}")
+                    tool_type = ToolType.GMAIL  # Default fallback
+                
+                # Map action name to ActionType
+                action_type = self._map_action_name(action_name)
+                
+                step = ExecutionStep(
+                    step_index=step_data.get("step_index", i + 1),
+                    tool=tool_type,
+                    action=action_type,
+                    description=step_data.get("description", f"Execute {action_name}"),
+                    parameters=step_data.get("parameters", {}),
+                    dependencies=step_data.get("dependencies", []),
+                    expected_outputs=step_data.get("expected_outputs", [])
+                )
+                
+                steps.append(step)
+                logger.info(f"✅ Step {i+1} parsed: {step.tool.value} - {step.action.value}")
             
-            logger.info("🏗️ Creating ExecutionPlan object")
             execution_plan = ExecutionPlan(
                 intent=plan_data.get("intent", "Execute user request"),
                 steps=steps,
@@ -412,7 +354,7 @@ RESPOND WITH ONLY THE JSON OBJECT:
                 requires_confirmation=plan_data.get("requires_confirmation", False)
             )
             
-            logger.info(f"✅ ExecutionPlan created successfully: {execution_plan.intent}")
+            logger.info(f"✅ ExecutionPlan created: {execution_plan.intent}")
             return execution_plan
             
         except Exception as e:
@@ -420,34 +362,155 @@ RESPOND WITH ONLY THE JSON OBJECT:
             logger.error(traceback.format_exc())
             raise
     
-    def _create_fallback_plan(self, user_request: str, error: str) -> ExecutionPlan:
-        """Create simple fallback plan when LLM planning fails with logging"""
+    def _map_action_name(self, action_name: str) -> ActionType:
+        """Map action name to ActionType enum"""
+        # Create mapping from tool names to ActionType
+        action_mapping = {
+            # Gmail actions
+            "send_email_tool": ActionType.SEND_EMAIL,
+            "search_emails_tool": ActionType.SEARCH_EMAILS,
+            "read_recent_emails_tool": ActionType.READ_EMAILS,
+            "get_email_threads_tool": ActionType.GET_THREADS,
+            
+            # Calendar actions
+            "create_calendar_event_tool": ActionType.CREATE_EVENT,
+            "list_calendar_events_tool": ActionType.LIST_EVENTS,
+            "update_calendar_event_tool": ActionType.UPDATE_EVENT,
+            "delete_calendar_event_tool": ActionType.DELETE_EVENT,
+            "get_calendar_event_tool": ActionType.GET_EVENT,
+            
+            # Drive actions
+            "upload_file_to_drive_tool": ActionType.UPLOAD_FILE,
+            "search_files_in_drive_tool": ActionType.SEARCH_FILES,
+            "share_drive_file_tool": ActionType.SHARE_FILE,
+            "download_drive_file_tool": ActionType.DOWNLOAD_FILE,
+            "list_recent_drive_files_tool": ActionType.LIST_FILES,
+            "get_drive_file_info_tool": ActionType.SEARCH_FILES  # Closest match
+        }
         
+        return action_mapping.get(action_name, ActionType.READ_EMAILS)  # Default fallback
+    
+    def _validate_plan(self, plan: ExecutionPlan) -> List[str]:
+        """Validate execution plan for basic issues"""
+        issues = []
+        
+        try:
+            if not plan.steps:
+                issues.append("Plan has no steps")
+                return issues
+            
+            # Check step indices
+            expected_indices = set(range(1, len(plan.steps) + 1))
+            actual_indices = {step.step_index for step in plan.steps}
+            
+            if expected_indices != actual_indices:
+                issues.append(f"Step indices mismatch. Expected: {expected_indices}, Got: {actual_indices}")
+            
+            # Check dependencies
+            for step in plan.steps:
+                for dep in step.dependencies:
+                    if dep >= step.step_index:
+                        issues.append(f"Step {step.step_index} depends on future step {dep}")
+                    if dep not in actual_indices:
+                        issues.append(f"Step {step.step_index} depends on non-existent step {dep}")
+            
+            return issues
+            
+        except Exception as e:
+            return [f"Error validating plan: {str(e)}"]
+    
+    def _create_fallback_plan(self, user_request: str, error: str) -> ExecutionPlan:
+        """Create simple fallback plan when planning fails"""
         logger.warning(f"⚠️ Creating fallback plan due to error: {error}")
-        logger.info(f"📋 Original request: {user_request}")
         
         try:
             fallback_step = ExecutionStep(
                 step_index=1,
                 tool=ToolType.GMAIL,
-                action=ActionType.READ_EMAILS,  # Updated to use simplified action
-                description=f"Fallback: Check recent emails (Planning error: {error})",
+                action=ActionType.READ_EMAILS,
+                description=f"Fallback: Check recent emails (Planning error: {error[:100]})",
                 parameters={"max_results": 5},
                 dependencies=[],
                 expected_outputs=["emails"]
             )
             
             fallback_plan = ExecutionPlan(
-                intent=f"Fallback plan for: {user_request}",
+                intent=f"Fallback plan for: {user_request[:100]}",
                 steps=[fallback_step],
                 estimated_duration="10 seconds",
                 requires_confirmation=False
             )
             
-            logger.info("✅ Fallback plan created successfully")
+            logger.info("✅ Fallback plan created")
             return fallback_plan
             
         except Exception as fallback_error:
             logger.error(f"❌ Error creating fallback plan: {str(fallback_error)}")
-            logger.error(traceback.format_exc())
             raise
+
+# Factory function for easy integration
+def create_llm_planner() -> StreamlinedLLMPlanner:
+    """
+    Factory function to create a StreamlinedLLMPlanner instance.
+    
+    Returns:
+        Configured StreamlinedLLMPlanner instance
+    """
+    logger.info("🏭 Creating StreamlinedLLMPlanner instance")
+    return StreamlinedLLMPlanner()
+
+# Utility functions
+def validate_plan_structure(plan: ExecutionPlan) -> Dict[str, Any]:
+    """
+    Validate plan structure and return detailed analysis.
+    
+    Args:
+        plan: ExecutionPlan to validate
+        
+    Returns:
+        Validation results with issues and recommendations
+    """
+    validation = {
+        "valid": True,
+        "issues": [],
+        "warnings": [],
+        "recommendations": [],
+        "stats": {
+            "total_steps": len(plan.steps),
+            "gmail_steps": len([s for s in plan.steps if s.tool == ToolType.GMAIL]),
+            "calendar_steps": len([s for s in plan.steps if s.tool == ToolType.CALENDAR]),
+            "drive_steps": len([s for s in plan.steps if s.tool == ToolType.DRIVE]),
+            "dependent_steps": len([s for s in plan.steps if s.dependencies]),
+            "parallel_steps": len([s for s in plan.steps if not s.dependencies])
+        }
+    }
+    
+    # Basic validation
+    if not plan.steps:
+        validation["issues"].append("Plan has no steps")
+        validation["valid"] = False
+    
+    if not plan.intent:
+        validation["warnings"].append("Plan has no clear intent")
+    
+    # Check for reasonable step count
+    if len(plan.steps) > 10:
+        validation["warnings"].append(f"Plan has many steps ({len(plan.steps)}). Consider simplification.")
+    
+    # Check for complex dependencies
+    max_deps = max((len(s.dependencies) for s in plan.steps), default=0)
+    if max_deps > 3:
+        validation["warnings"].append("Some steps have many dependencies. Consider parallelization.")
+    
+    return validation
+
+if __name__ == "__main__":
+    # Example usage for testing
+    print("🤖 StreamlinedLLMPlanner Test")
+    print("This module handles plan generation for LangGraph workflows")
+    
+    try:
+        planner = create_llm_planner()
+        print("✅ Planner created successfully")
+    except Exception as e:
+        print(f"❌ Planner creation failed: {e}")
