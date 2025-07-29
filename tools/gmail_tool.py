@@ -17,40 +17,40 @@ from pydantic import BaseModel, Field
 # Configure logging
 logger = logging.getLogger(__name__)
 
-# Pydantic models for tool inputs (required by LangChain tools)
+# Pydantic models - KEEP YOUR EXISTING SCHEMAS
 class SendEmailInput(BaseModel):
     """Input schema for sending emails"""
-    to: Union[str, List[str]] = Field(description="Email recipient(s). Can be single email or list of emails")
+    to: Union[str, List[str]] = Field(description="Email recipient(s)")
     subject: str = Field(description="Email subject line")
     body: str = Field(description="Email body content")
-    cc: Optional[Union[str, List[str]]] = Field(default=None, description="CC recipients (optional)")
-    bcc: Optional[Union[str, List[str]]] = Field(default=None, description="BCC recipients (optional)")
+    cc: Optional[Union[str, List[str]]] = Field(default=None, description="CC recipients")
+    bcc: Optional[Union[str, List[str]]] = Field(default=None, description="BCC recipients")
     user_id: str = Field(description="User ID for authentication")
 
 class SearchEmailsInput(BaseModel):
     """Input schema for searching emails"""
-    sender: Optional[str] = Field(default=None, description="Filter by sender email address")
-    date_range: Optional[List[str]] = Field(default=None, description="Date range as [start_date, end_date] in YYYY/MM/DD format")
-    keywords: Optional[Union[str, List[str]]] = Field(default=None, description="Keywords to search for")
-    has_attachment: Optional[bool] = Field(default=None, description="Filter by attachment presence")
-    max_results: int = Field(default=20, description="Maximum number of results to return")
+    sender: Optional[str] = Field(default=None, description="Filter by sender email")
+    date_range: Optional[List[str]] = Field(default=None, description="Date range [start, end]")
+    keywords: Optional[Union[str, List[str]]] = Field(default=None, description="Keywords to search")
+    has_attachment: Optional[bool] = Field(default=None, description="Filter by attachments")
+    max_results: int = Field(default=20, description="Maximum results")
     user_id: str = Field(description="User ID for authentication")
 
 class ReadEmailsInput(BaseModel):
     """Input schema for reading recent emails"""
-    max_results: int = Field(default=10, description="Maximum number of emails to read")
-    query: Optional[str] = Field(default=None, description="Gmail search query (optional)")
-    include_attachments: bool = Field(default=False, description="Include attachment information")
+    max_results: int = Field(default=10, description="Maximum emails to read")
+    query: Optional[str] = Field(default=None, description="Gmail search query")
+    include_attachments: bool = Field(default=False, description="Include attachment info")
     user_id: str = Field(description="User ID for authentication")
 
 class GetThreadsInput(BaseModel):
     """Input schema for getting email threads"""
-    thread_id: Optional[str] = Field(default=None, description="Specific thread ID to retrieve")
+    thread_id: Optional[str] = Field(default=None, description="Specific thread ID")
     query: Optional[str] = Field(default=None, description="Search query for threads")
-    include_attachments: bool = Field(default=False, description="Include attachment information")
+    include_attachments: bool = Field(default=False, description="Include attachments")
     user_id: str = Field(description="User ID for authentication")
 
-# Gmail Tool Class (helper functions)
+# Gmail Helper Class - KEEP YOUR EXISTING LOGIC
 class GmailToolHelper:
     """Helper class containing Gmail API operations"""
     
@@ -61,7 +61,6 @@ class GmailToolHelper:
                        attachments: Optional[List[Union[str, Dict]]] = None) -> Dict[str, str]:
         """Build email message with optional attachments"""
         
-        # Create message container
         if attachments:
             message = MIMEMultipart()
         else:
@@ -103,7 +102,6 @@ class GmailToolHelper:
         """Add attachment to message"""
         try:
             if isinstance(attachment, str):
-                # File path
                 if not os.path.exists(attachment):
                     raise FileNotFoundError(f"Attachment file not found: {attachment}")
                 
@@ -116,7 +114,6 @@ class GmailToolHelper:
                     mime_type = 'application/octet-stream'
                 
             elif isinstance(attachment, dict):
-                # Dict with filename, content, mime_type
                 filename = attachment['filename']
                 content = attachment['content']
                 mime_type = attachment.get('mime_type', 'application/octet-stream')
@@ -159,7 +156,6 @@ class GmailToolHelper:
                 'snippet': message.get('snippet', '')
             }
             
-            # Add attachment info if requested
             if include_attachments:
                 attachments = GmailToolHelper._extract_attachments(message['payload'])
                 email_data['attachments'] = attachments
@@ -214,312 +210,269 @@ class GmailToolHelper:
             process_parts(payload['parts'])
         
         return attachments
-    
-    @staticmethod
-    def _process_thread(service, thread: Dict, include_attachments: bool = False) -> Dict[str, Any]:
-        """Process thread data"""
-        messages = []
-        
-        for message in thread['messages']:
-            email_data = GmailToolHelper._get_email_details(service, message['id'], include_attachments)
-            if email_data:
-                messages.append(email_data)
-        
-        return {
-            'thread_id': thread['id'],
-            'message_count': len(messages),
-            'messages': messages
-        }
 
-# LangChain Tools using @tool decorator
-@tool
-def send_email_tool(to: Union[str, List[str]], subject: str, body: str,
-                   cc: Optional[Union[str, List[str]]] = None,
-                   bcc: Optional[Union[str, List[str]]] = None,
-                   user_id: str = None) -> str:
+# FACTORY FUNCTION - This is the key change!
+def create_gmail_tools(auth_manager) -> List[BaseTool]:
     """
-    Send an email via Gmail API.
+    Create Gmail tools with auth_manager dependency injected.
     
-    Sends email to specified recipients with subject and body.
-    Supports CC, BCC, and basic formatting.
+    This approach:
+    - Keeps your session state token storage (perfect for demos)
+    - Removes Streamlit coupling from tools  
+    - Makes tools testable
+    - Clean dependency injection
     """
-    logger.info(f"📧 Sending email to: {to}")
+    logger.info("🔧 Creating Gmail tools with auth injection")
     
-    try:
-        # Get auth manager from session state (temporary solution)
-        import streamlit as st
-        auth_manager = st.session_state.get('auth_manager')
-        if not auth_manager:
-            raise Exception("Auth manager not available")
+    # Create tools that close over auth_manager
+    @tool
+    def send_email_tool(input_data: SendEmailInput) -> str:
+        """
+        Send an email via Gmail API.
         
-        # Get authenticated Gmail client
-        client = auth_manager.get_authenticated_client('gmail', 'v1', user_id)
-        if not client:
-            raise Exception("Gmail authentication failed")
+        Sends email to specified recipients with subject and body.
+        Supports CC, BCC, and basic formatting.
+        """
+        logger.info(f"📧 Sending email to: {input_data.to}")
         
-        # Build message
-        message = GmailToolHelper._build_message(to, subject, body, cc, bcc)
-        
-        # Send message
-        result = client.users().messages().send(userId='me', body=message).execute()
-        
-        logger.info(f"✅ Email sent successfully: {result['id']}")
-        
-        return f"Email sent successfully to {to}. Message ID: {result['id']}"
-        
-    except Exception as e:
-        logger.error(f"❌ Failed to send email: {str(e)}")
-        return f"Failed to send email: {str(e)}"
-
-@tool
-def search_emails_tool(user_id: str,
-                      sender: Optional[str] = None,
-                      date_range: Optional[List[str]] = None,
-                      keywords: Optional[Union[str, List[str]]] = None,
-                      has_attachment: Optional[bool] = None,
-                      max_results: int = 20) -> str:
-    """
-    Search emails using Gmail API with filters.
+        try:
+            # FIXED: Use injected auth_manager (which still uses session state internally)
+            client = auth_manager.get_authenticated_client('gmail', 'v1', input_data.user_id)
+            if not client:
+                raise Exception("Gmail authentication failed")
+            
+            # Build message
+            message = GmailToolHelper._build_message(
+                input_data.to, 
+                input_data.subject, 
+                input_data.body, 
+                input_data.cc, 
+                input_data.bcc
+            )
+            
+            # Send message
+            result = client.users().messages().send(userId='me', body=message).execute()
+            
+            logger.info(f"✅ Email sent successfully: {result['id']}")
+            
+            return f"Email sent successfully to {input_data.to}. Message ID: {result['id']}"
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to send email: {str(e)}")
+            return f"Failed to send email: {str(e)}"
     
-    Search emails by sender, date range, keywords, and attachment status.
-    Returns formatted list of matching emails.
-    """
-    logger.info(f"🔍 Searching emails with filters")
-    
-    try:
-        # Get auth manager from session state
-        import streamlit as st
-        auth_manager = st.session_state.get('auth_manager')
-        if not auth_manager:
-            raise Exception("Auth manager not available")
+    @tool
+    def search_emails_tool(input_data: SearchEmailsInput) -> str:
+        """
+        Search emails using Gmail API with filters.
         
-        # Get authenticated Gmail client
-        client = auth_manager.get_authenticated_client('gmail', 'v1', user_id)
-        if not client:
-            raise Exception("Gmail authentication failed")
+        Search emails by sender, date range, keywords, and attachment status.
+        Returns formatted list of matching emails.
+        """
+        logger.info(f"🔍 Searching emails with filters")
         
-        # Build search query
-        query_parts = []
-        
-        if sender:
-            query_parts.append(f"from:{sender}")
-        
-        if date_range:
-            start_date, end_date = date_range
-            query_parts.append(f"after:{start_date}")
-            query_parts.append(f"before:{end_date}")
-        
-        if keywords:
-            if isinstance(keywords, str):
-                query_parts.append(f"({keywords})")
-            else:
-                keyword_query = " OR ".join(keywords)
-                query_parts.append(f"({keyword_query})")
-        
-        if has_attachment is not None:
-            if has_attachment:
-                query_parts.append("has:attachment")
-            else:
-                query_parts.append("-has:attachment")
-        
-        search_query = " ".join(query_parts) if query_parts else "in:inbox"
-        
-        # Execute search
-        results = client.users().messages().list(
-            userId='me',
-            q=search_query,
-            maxResults=max_results
-        ).execute()
-        
-        messages = results.get('messages', [])
-        emails = []
-        
-        for msg in messages[:5]:  # Limit detail for tool output
-            email_data = GmailToolHelper._get_email_details(client, msg['id'], False)
-            if email_data:
-                emails.append({
-                    'from': email_data['from'],
-                    'subject': email_data['subject'],
-                    'date': email_data['date'],
-                    'snippet': email_data['snippet'][:100] + '...' if len(email_data['snippet']) > 100 else email_data['snippet']
-                })
-        
-        logger.info(f"✅ Found {len(messages)} emails, returning {len(emails)} details")
-        
-        # Format response
-        if emails:
-            response = f"Found {len(messages)} emails matching search criteria:\n\n"
-            for i, email in enumerate(emails, 1):
-                response += f"{i}. From: {email['from']}\n"
-                response += f"   Subject: {email['subject']}\n"
-                response += f"   Date: {email['date']}\n"
-                response += f"   Preview: {email['snippet']}\n\n"
-            return response
-        else:
-            return "No emails found matching the search criteria."
-        
-    except Exception as e:
-        logger.error(f"❌ Failed to search emails: {str(e)}")
-        return f"Failed to search emails: {str(e)}"
-
-@tool
-def read_recent_emails_tool(user_id: str,
-                           max_results: int = 10,
-                           query: Optional[str] = None,
-                           include_attachments: bool = False) -> str:
-    """
-    Read recent emails from Gmail inbox.
-    
-    Retrieves and formats recent emails with sender, subject, and preview.
-    Useful for getting overview of recent activity.
-    """
-    logger.info(f"📬 Reading {max_results} recent emails")
-    
-    try:
-        # Get auth manager from session state
-        import streamlit as st
-        auth_manager = st.session_state.get('auth_manager')
-        if not auth_manager:
-            raise Exception("Auth manager not available")
-        
-        # Get authenticated Gmail client
-        client = auth_manager.get_authenticated_client('gmail', 'v1', user_id)
-        if not client:
-            raise Exception("Gmail authentication failed")
-        
-        # Get message list
-        search_query = query if query else 'in:inbox'
-        results = client.users().messages().list(
-            userId='me',
-            q=search_query,
-            maxResults=max_results
-        ).execute()
-        
-        messages = results.get('messages', [])
-        emails = []
-        
-        for msg in messages:
-            email_data = GmailToolHelper._get_email_details(client, msg['id'], include_attachments)
-            if email_data:
-                emails.append(email_data)
-        
-        logger.info(f"✅ Retrieved {len(emails)} recent emails")
-        
-        # Format response
-        if emails:
-            response = f"Recent {len(emails)} emails:\n\n"
-            for i, email in enumerate(emails, 1):
-                response += f"{i}. From: {email['from']}\n"
-                response += f"   Subject: {email['subject']}\n"
-                response += f"   Date: {email['date']}\n"
-                response += f"   Preview: {email['snippet'][:100]}...\n"
-                if include_attachments and email.get('has_attachments'):
-                    response += f"   Attachments: {len(email.get('attachments', []))}\n"
-                response += "\n"
-            return response
-        else:
-            return "No recent emails found."
-        
-    except Exception as e:
-        logger.error(f"❌ Failed to read emails: {str(e)}")
-        return f"Failed to read emails: {str(e)}"
-
-@tool
-def get_email_threads_tool(user_id: str,
-                          thread_id: Optional[str] = None,
-                          query: Optional[str] = None,
-                          include_attachments: bool = False) -> str:
-    """
-    Get email thread conversations.
-    
-    Retrieves complete email threads for conversation context.
-    Can get specific thread by ID or search for threads.
-    """
-    logger.info(f"🧵 Getting email threads")
-    
-    try:
-        # Get auth manager from session state
-        import streamlit as st
-        auth_manager = st.session_state.get('auth_manager')
-        if not auth_manager:
-            raise Exception("Auth manager not available")
-        
-        # Get authenticated Gmail client
-        client = auth_manager.get_authenticated_client('gmail', 'v1', user_id)
-        if not client:
-            raise Exception("Gmail authentication failed")
-        
-        if thread_id:
-            # Get specific thread
-            thread = client.users().threads().get(userId='me', id=thread_id).execute()
-            threads_data = [GmailToolHelper._process_thread(client, thread, include_attachments)]
-        
-        elif query:
-            # Search for threads
-            results = client.users().threads().list(
+        try:
+            # Use injected auth_manager
+            client = auth_manager.get_authenticated_client('gmail', 'v1', input_data.user_id)
+            if not client:
+                raise Exception("Gmail authentication failed")
+            
+            # Build search query
+            query_parts = []
+            
+            if input_data.sender:
+                query_parts.append(f"from:{input_data.sender}")
+            
+            if input_data.date_range:
+                start_date, end_date = input_data.date_range
+                query_parts.append(f"after:{start_date}")
+                query_parts.append(f"before:{end_date}")
+            
+            if input_data.keywords:
+                if isinstance(input_data.keywords, str):
+                    query_parts.append(f"({input_data.keywords})")
+                else:
+                    keyword_query = " OR ".join(input_data.keywords)
+                    query_parts.append(f"({keyword_query})")
+            
+            if input_data.has_attachment is not None:
+                if input_data.has_attachment:
+                    query_parts.append("has:attachment")
+                else:
+                    query_parts.append("-has:attachment")
+            
+            search_query = " ".join(query_parts) if query_parts else "in:inbox"
+            
+            # Execute search
+            results = client.users().messages().list(
                 userId='me',
-                q=query,
-                maxResults=5  # Limit for tool output
+                q=search_query,
+                maxResults=input_data.max_results
             ).execute()
             
-            threads = results.get('threads', [])
-            threads_data = []
+            messages = results.get('messages', [])
+            emails = []
             
-            for thread in threads:
-                thread_details = client.users().threads().get(
-                    userId='me', 
-                    id=thread['id']
+            for msg in messages[:5]:  # Limit detail for tool output
+                email_data = GmailToolHelper._get_email_details(client, msg['id'], False)
+                if email_data:
+                    emails.append({
+                        'from': email_data['from'],
+                        'subject': email_data['subject'],
+                        'date': email_data['date'],
+                        'snippet': email_data['snippet'][:100] + '...' if len(email_data['snippet']) > 100 else email_data['snippet']
+                    })
+            
+            logger.info(f"✅ Found {len(messages)} emails, returning {len(emails)} details")
+            
+            # Format response
+            if emails:
+                response = f"Found {len(messages)} emails matching search criteria:\n\n"
+                for i, email in enumerate(emails, 1):
+                    response += f"{i}. From: {email['from']}\n"
+                    response += f"   Subject: {email['subject']}\n"
+                    response += f"   Date: {email['date']}\n"
+                    response += f"   Preview: {email['snippet']}\n\n"
+                return response
+            else:
+                return "No emails found matching the search criteria."
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to search emails: {str(e)}")
+            return f"Failed to search emails: {str(e)}"
+    
+    @tool
+    def read_recent_emails_tool(input_data: ReadEmailsInput) -> str:
+        """
+        Read recent emails from Gmail inbox.
+        
+        Retrieves and formats recent emails with sender, subject, and preview.
+        Useful for getting overview of recent activity.
+        """
+        logger.info(f"📬 Reading {input_data.max_results} recent emails")
+        
+        try:
+            client = auth_manager.get_authenticated_client('gmail', 'v1', input_data.user_id)
+            if not client:
+                raise Exception("Gmail authentication failed")
+            
+            # Get message list
+            search_query = input_data.query if input_data.query else 'in:inbox'
+            results = client.users().messages().list(
+                userId='me',
+                q=search_query,
+                maxResults=input_data.max_results
+            ).execute()
+            
+            messages = results.get('messages', [])
+            emails = []
+            
+            for msg in messages:
+                email_data = GmailToolHelper._get_email_details(client, msg['id'], input_data.include_attachments)
+                if email_data:
+                    emails.append(email_data)
+            
+            logger.info(f"✅ Retrieved {len(emails)} recent emails")
+            
+            # Format response
+            if emails:
+                response = f"Recent {len(emails)} emails:\n\n"
+                for i, email in enumerate(emails, 1):
+                    response += f"{i}. From: {email['from']}\n"
+                    response += f"   Subject: {email['subject']}\n"
+                    response += f"   Date: {email['date']}\n"
+                    response += f"   Preview: {email['snippet'][:100]}...\n"
+                    if input_data.include_attachments and email.get('has_attachments'):
+                        response += f"   Attachments: {len(email.get('attachments', []))}\n"
+                    response += "\n"
+                return response
+            else:
+                return "No recent emails found."
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to read emails: {str(e)}")
+            return f"Failed to read emails: {str(e)}"
+    
+    @tool
+    def get_email_threads_tool(input_data: GetThreadsInput) -> str:
+        """
+        Get email thread conversations.
+        
+        Retrieves complete email threads for conversation context.
+        Can get specific thread by ID or search for threads.
+        """
+        logger.info(f"🧵 Getting email threads")
+        
+        try:
+            client = auth_manager.get_authenticated_client('gmail', 'v1', input_data.user_id)
+            if not client:
+                raise Exception("Gmail authentication failed")
+            
+            if input_data.thread_id:
+                # Get specific thread
+                thread = client.users().threads().get(userId='me', id=input_data.thread_id).execute()
+                threads_data = [GmailToolHelper._process_thread(client, thread, input_data.include_attachments)]
+            
+            elif input_data.query:
+                # Search for threads
+                results = client.users().threads().list(
+                    userId='me',
+                    q=input_data.query,
+                    maxResults=5  # Limit for tool output
                 ).execute()
-                threads_data.append(GmailToolHelper._process_thread(client, thread_details, include_attachments))
-        
-        else:
-            return "Either thread_id or query must be provided"
-        
-        logger.info(f"✅ Retrieved {len(threads_data)} thread(s)")
-        
-        # Format response
-        if threads_data:
-            response = f"Email threads ({len(threads_data)} found):\n\n"
-            for i, thread in enumerate(threads_data, 1):
-                response += f"Thread {i} (ID: {thread['thread_id']}):\n"
-                response += f"  Messages: {thread['message_count']}\n"
                 
-                # Show first and last message
-                messages = thread['messages']
-                if messages:
-                    response += f"  First: {messages[0]['subject']} from {messages[0]['from']}\n"
-                    if len(messages) > 1:
-                        response += f"  Latest: {messages[-1]['subject']} from {messages[-1]['from']}\n"
-                response += "\n"
+                threads = results.get('threads', [])
+                threads_data = []
+                
+                for thread in threads:
+                    thread_details = client.users().threads().get(
+                        userId='me', 
+                        id=thread['id']
+                    ).execute()
+                    
+                    processed_thread = GmailToolHelper._process_thread(client, thread_details, input_data.include_attachments)
+                    threads_data.append(processed_thread)
             
-            return response
-        else:
-            return "No threads found."
-        
-    except Exception as e:
-        logger.error(f"❌ Failed to get threads: {str(e)}")
-        return f"Failed to get threads: {str(e)}"
-
-# Tool registry for integration with LangGraph
-def get_gmail_tools() -> List[BaseTool]:
-    """
-    Get list of Gmail tools ready for use with ToolNode.
+            else:
+                return "Either thread_id or query must be provided"
+            
+            logger.info(f"✅ Retrieved {len(threads_data)} thread(s)")
+            
+            # Format response
+            if threads_data:
+                response = f"Email threads ({len(threads_data)} found):\n\n"
+                for i, thread in enumerate(threads_data, 1):
+                    response += f"Thread {i} (ID: {thread['thread_id']}):\n"
+                    response += f"  Messages: {thread['message_count']}\n"
+                    
+                    # Show first and last message
+                    messages = thread['messages']
+                    if messages:
+                        response += f"  First: {messages[0]['subject']} from {messages[0]['from']}\n"
+                        if len(messages) > 1:
+                            response += f"  Latest: {messages[-1]['subject']} from {messages[-1]['from']}\n"
+                    response += "\n"
+                
+                return response
+            else:
+                return "No threads found."
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to get threads: {str(e)}")
+            return f"Failed to get threads: {str(e)}"
     
-    Returns LangChain tools that access auth_manager from session state.
-    """
-    logger.info("🔧 Creating Gmail tools registry")
-    
+    # Return list of tools
     tools = [
         send_email_tool,
-        search_emails_tool,
+        search_emails_tool, 
         read_recent_emails_tool,
         get_email_threads_tool
     ]
     
-    logger.info(f"✅ Created {len(tools)} Gmail tools")
+    logger.info(f"✅ Created {len(tools)} Gmail tools with auth injection")
     return tools
 
-# Tool metadata for the orchestrator
+# Tool metadata for the orchestrator - KEEP YOUR EXISTING METADATA
 GMAIL_TOOL_METADATA = {
     "send_email_tool": {
         "description": "Send emails to recipients",

@@ -2,6 +2,7 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime
 import logging
 from pathlib import Path
+import sqlite3
 
 # LangGraph checkpointing imports
 from langgraph.checkpoint.sqlite import SqliteSaver
@@ -44,7 +45,8 @@ class StateManager:
         # Initialize checkpointer
         if use_memory:
             logger.info(f"🗃️ Using MemorySaver for user: {user_id}")
-            self.checkpointer = MemorySaver()
+            conn = sqlite3.connect(str(db_path))
+            self.checkpointer = SqliteSaver(conn)
         else:
             # Create SQLite database for persistent storage
             db_path = Path("data") / "checkpoints" / f"user_{user_id}.db"

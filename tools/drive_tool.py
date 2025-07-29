@@ -12,23 +12,23 @@ from pydantic import BaseModel, Field
 # Configure logging
 logger = logging.getLogger(__name__)
 
-# Pydantic models for tool inputs
+# Pydantic models for tool inputs - KEEP YOUR EXISTING SCHEMAS
 class UploadFileInput(BaseModel):
     """Input schema for uploading files to Google Drive"""
     file_path: Optional[str] = Field(default=None, description="Local file path to upload")
     filename: Optional[str] = Field(default=None, description="Name for the uploaded file")
-    folder_id: Optional[str] = Field(default=None, description="Google Drive folder ID (optional)")
-    description: Optional[str] = Field(default=None, description="File description (optional)")
+    folder_id: Optional[str] = Field(default=None, description="Google Drive folder ID")
+    description: Optional[str] = Field(default=None, description="File description")
     make_public: bool = Field(default=False, description="Make file publicly accessible")
     user_id: str = Field(description="User ID for authentication")
 
 class SearchFilesInput(BaseModel):
     """Input schema for searching files in Google Drive"""
     query: Optional[str] = Field(default=None, description="Search query for file names")
-    file_type: Optional[str] = Field(default=None, description="File type filter (pdf, doc, sheet, image, etc.)")
+    file_type: Optional[str] = Field(default=None, description="File type filter")
     folder_id: Optional[str] = Field(default=None, description="Search within specific folder")
     max_results: int = Field(default=20, description="Maximum number of results")
-    include_trashed: bool = Field(default=False, description="Include trashed files in results")
+    include_trashed: bool = Field(default=False, description="Include trashed files")
     user_id: str = Field(description="User ID for authentication")
 
 class ShareFileInput(BaseModel):
@@ -37,18 +37,18 @@ class ShareFileInput(BaseModel):
     email_addresses: Optional[List[str]] = Field(default=None, description="Email addresses to share with")
     role: str = Field(default='reader', description="Permission role: reader, writer, commenter")
     make_public: bool = Field(default=False, description="Make file publicly accessible")
-    send_notification: bool = Field(default=True, description="Send email notification to recipients")
+    send_notification: bool = Field(default=True, description="Send email notification")
     user_id: str = Field(description="User ID for authentication")
 
 class DownloadFileInput(BaseModel):
     """Input schema for downloading files"""
     file_id: str = Field(description="Google Drive file ID to download")
-    download_path: Optional[str] = Field(default=None, description="Local download path (optional)")
+    download_path: Optional[str] = Field(default=None, description="Local download path")
     user_id: str = Field(description="User ID for authentication")
 
 class ListFilesInput(BaseModel):
     """Input schema for listing recent files"""
-    max_results: int = Field(default=20, description="Maximum number of files to list")
+    max_results: int = Field(default=20, description="Maximum number of files")
     file_types: Optional[List[str]] = Field(default=None, description="Filter by file types")
     recent: bool = Field(default=True, description="Sort by recent activity")
     user_id: str = Field(description="User ID for authentication")
@@ -58,7 +58,7 @@ class GetFileInfoInput(BaseModel):
     file_id: str = Field(description="Google Drive file ID")
     user_id: str = Field(description="User ID for authentication")
 
-# Drive Tool Helper Class
+# Drive Tool Helper Class - KEEP YOUR EXISTING LOGIC
 class DriveToolHelper:
     """Helper class containing Drive API operations"""
     
@@ -131,301 +131,98 @@ class DriveToolHelper:
         }
         service.permissions().create(fileId=file_id, body=permission).execute()
 
-# LangChain Tools using @tool decorator
-@tool
-def upload_file_to_drive_tool(input_data: UploadFileInput, auth_manager) -> str:
+# FACTORY FUNCTION - Create Drive tools with auth injection
+def create_drive_tools(auth_manager) -> List[BaseTool]:
     """
-    Upload a file to Google Drive.
+    Create Drive tools with auth_manager dependency injected.
     
-    Uploads a local file to Google Drive with optional folder placement
-    and public sharing. Returns file details and share link.
+    Auth manager still uses session state internally (perfect for demos!)
+    Tools no longer import Streamlit directly.
     """
-    logger.info(f"📤 Uploading file to Drive: {input_data.filename}")
+    logger.info("🔧 Creating Drive tools with auth injection")
     
-    try:
-        # Get authenticated Drive client
-        client = auth_manager.get_authenticated_client('drive', 'v3', input_data.user_id)
-        if not client:
-            raise Exception("Drive authentication failed")
+    @tool
+    def upload_file_to_drive_tool(input_data: UploadFileInput) -> str:
+        """
+        Upload a file to Google Drive.
         
-        # Validate file path
-        if not input_data.file_path or not os.path.exists(input_data.file_path):
-            raise FileNotFoundError(f"File not found: {input_data.file_path}")
+        Uploads a local file to Google Drive with optional folder placement
+        and public sharing. Returns file details and share link.
+        """
+        logger.info(f"📤 Uploading file to Drive: {input_data.filename}")
         
-        filename = input_data.filename or os.path.basename(input_data.file_path)
-        mime_type, _ = mimetypes.guess_type(input_data.file_path)
-        media = MediaFileUpload(input_data.file_path, mimetype=mime_type)
-        
-        # File metadata
-        file_metadata = {'name': filename}
-        
-        if input_data.description:
-            file_metadata['description'] = input_data.description
-        
-        if input_data.folder_id:
-            file_metadata['parents'] = [input_data.folder_id]
-        
-        # Upload file
-        result = client.files().create(
-            body=file_metadata,
-            media_body=media,
-            fields='id,name,size,mimeType,webViewLink,webContentLink'
-        ).execute()
-        
-        # Make public if requested
-        if input_data.make_public:
-            DriveToolHelper._make_file_public(client, result['id'])
-        
-        logger.info(f"✅ File uploaded successfully: {result['id']}")
-        
-        # Format response
-        response = f"File '{filename}' uploaded successfully to Google Drive!\n\n"
-        response += DriveToolHelper._format_file_summary(result)
-        response += f"   🆔 File ID: {result['id']}\n"
-        
-        if input_data.make_public:
-            response += "   🌍 Public access: Yes\n"
-        
-        return response
-        
-    except Exception as e:
-        logger.error(f"❌ Failed to upload file: {str(e)}")
-        return f"Failed to upload file: {str(e)}"
-
-@tool
-def search_files_in_drive_tool(input_data: SearchFilesInput, auth_manager) -> str:
-    """
-    Search for files in Google Drive using various filters.
-    
-    Search files by name, type, folder, or content. Supports filtering
-    by file types and excluding trashed files.
-    """
-    logger.info(f"🔍 Searching Drive files: {input_data.query}")
-    
-    try:
-        # Get authenticated Drive client
-        client = auth_manager.get_authenticated_client('drive', 'v3', input_data.user_id)
-        if not client:
-            raise Exception("Drive authentication failed")
-        
-        # Build search query
-        search_parts = []
-        
-        if input_data.query:
-            search_parts.append(f"name contains '{input_data.query}'")
-        
-        if input_data.file_type:
-            # Handle common file type shortcuts
-            type_mapping = {
-                'pdf': 'application/pdf',
-                'doc': 'application/vnd.google-apps.document',
-                'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                'sheet': 'application/vnd.google-apps.spreadsheet',
-                'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                'image': 'image/',
-                'video': 'video/',
-                'audio': 'audio/'
-            }
+        try:
+            # FIXED: Use injected auth_manager instead of session state import
+            client = auth_manager.get_authenticated_client('drive', 'v3', input_data.user_id)
+            if not client:
+                raise Exception("Drive authentication failed")
             
-            mime_type = type_mapping.get(input_data.file_type.lower(), input_data.file_type)
-            if mime_type.endswith('/'):
-                search_parts.append(f"mimeType contains '{mime_type}'")
-            else:
-                search_parts.append(f"mimeType = '{mime_type}'")
-        
-        if input_data.folder_id:
-            search_parts.append(f"'{input_data.folder_id}' in parents")
-        
-        if not input_data.include_trashed:
-            search_parts.append("trashed = false")
-        
-        search_query = " and ".join(search_parts) if search_parts else "trashed = false"
-        
-        # Execute search
-        results = client.files().list(
-            q=search_query,
-            pageSize=input_data.max_results,
-            fields="files(id,name,size,mimeType,modifiedTime,webViewLink,parents,shared)"
-        ).execute()
-        
-        files = results.get('files', [])
-        
-        logger.info(f"✅ Found {len(files)} files")
-        
-        # Format response
-        if files:
-            response = f"Found {len(files)} files in Google Drive:\n\n"
-            for i, file in enumerate(files, 1):
-                response += f"{i}. {DriveToolHelper._format_file_summary(file)}\n"
-            return response
-        else:
-            return "No files found matching the search criteria."
-        
-    except Exception as e:
-        logger.error(f"❌ Failed to search files: {str(e)}")
-        return f"Failed to search files: {str(e)}"
-
-@tool
-def share_drive_file_tool(input_data: ShareFileInput, auth_manager) -> str:
-    """
-    Share a Google Drive file with users or make it public.
-    
-    Grants access to specific users via email or makes file publicly
-    accessible. Supports different permission levels.
-    """
-    logger.info(f"🔗 Sharing Drive file: {input_data.file_id}")
-    
-    try:
-        # Get authenticated Drive client
-        client = auth_manager.get_authenticated_client('drive', 'v3', input_data.user_id)
-        if not client:
-            raise Exception("Drive authentication failed")
-        
-        # Get file details
-        file_metadata = client.files().get(fileId=input_data.file_id, fields='name,webViewLink').execute()
-        filename = file_metadata['name']
-        
-        permissions_created = []
-        
-        # Share with specific users
-        if input_data.email_addresses:
-            for email in input_data.email_addresses:
-                permission = {
-                    'type': 'user',
-                    'role': input_data.role,
-                    'emailAddress': email
-                }
-                
-                result = client.permissions().create(
-                    fileId=input_data.file_id,
-                    body=permission,
-                    sendNotificationEmail=input_data.send_notification
-                ).execute()
-                
-                permissions_created.append({
-                    'email': email,
-                    'role': input_data.role,
-                    'permission_id': result['id']
-                })
-        
-        # Make public if requested
-        if input_data.make_public:
-            public_permission = {
-                'type': 'anyone',
-                'role': 'reader'
-            }
+            # Validate file path
+            if not input_data.file_path or not os.path.exists(input_data.file_path):
+                raise FileNotFoundError(f"File not found: {input_data.file_path}")
             
-            result = client.permissions().create(
-                fileId=input_data.file_id,
-                body=public_permission
+            filename = input_data.filename or os.path.basename(input_data.file_path)
+            mime_type, _ = mimetypes.guess_type(input_data.file_path)
+            media = MediaFileUpload(input_data.file_path, mimetype=mime_type)
+            
+            # File metadata
+            file_metadata = {'name': filename}
+            
+            if input_data.description:
+                file_metadata['description'] = input_data.description
+            
+            if input_data.folder_id:
+                file_metadata['parents'] = [input_data.folder_id]
+            
+            # Upload file
+            result = client.files().create(
+                body=file_metadata,
+                media_body=media,
+                fields='id,name,size,mimeType,webViewLink,webContentLink'
             ).execute()
             
-            permissions_created.append({
-                'type': 'public',
-                'role': 'reader',
-                'permission_id': result['id']
-            })
-        
-        logger.info(f"✅ File shared successfully: {input_data.file_id}")
-        
-        # Format response
-        response = f"File '{filename}' shared successfully!\n\n"
-        response += f"📄 {filename}\n"
-        response += f"🔗 View link: {file_metadata['webViewLink']}\n"
-        
-        if input_data.email_addresses:
-            response += f"📧 Shared with {len(input_data.email_addresses)} user(s):\n"
-            for perm in permissions_created:
-                if 'email' in perm:
-                    response += f"   • {perm['email']} ({perm['role']})\n"
-        
-        if input_data.make_public:
-            response += "🌍 Public access: Anyone with link can view\n"
-        
-        return response
-        
-    except Exception as e:
-        logger.error(f"❌ Failed to share file: {str(e)}")
-        return f"Failed to share file: {str(e)}"
-
-@tool
-def download_drive_file_tool(input_data: DownloadFileInput, auth_manager) -> str:
-    """
-    Download a file from Google Drive to local storage.
+            # Make public if requested
+            if input_data.make_public:
+                DriveToolHelper._make_file_public(client, result['id'])
+            
+            logger.info(f"✅ File uploaded successfully: {result['id']}")
+            
+            # Format response
+            response = f"File '{filename}' uploaded successfully to Google Drive!\n\n"
+            response += DriveToolHelper._format_file_summary(result)
+            response += f"   🆔 File ID: {result['id']}\n"
+            
+            if input_data.make_public:
+                response += "   🌍 Public access: Yes\n"
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to upload file: {str(e)}")
+            return f"Failed to upload file: {str(e)}"
     
-    Downloads file content and saves to specified location.
-    Returns download confirmation and file details.
-    """
-    logger.info(f"📥 Downloading Drive file: {input_data.file_id}")
-    
-    try:
-        # Get authenticated Drive client
-        client = auth_manager.get_authenticated_client('drive', 'v3', input_data.user_id)
-        if not client:
-            raise Exception("Drive authentication failed")
+    @tool
+    def search_files_in_drive_tool(input_data: SearchFilesInput) -> str:
+        """
+        Search for files in Google Drive using various filters.
         
-        # Get file metadata
-        file_metadata = client.files().get(fileId=input_data.file_id).execute()
-        filename = file_metadata['name']
+        Search files by name, type, folder, or content. Supports filtering
+        by file types and excluding trashed files.
+        """
+        logger.info(f"🔍 Searching Drive files: {input_data.query}")
         
-        # Determine download path
-        if input_data.download_path is None:
-            download_path = filename
-        elif os.path.isdir(input_data.download_path):
-            download_path = os.path.join(input_data.download_path, filename)
-        else:
-            download_path = input_data.download_path
-        
-        # Download file
-        request = client.files().get_media(fileId=input_data.file_id)
-        file_io = io.BytesIO()
-        downloader = MediaIoBaseDownload(file_io, request)
-        
-        done = False
-        while done is False:
-            status, done = downloader.next_chunk()
-        
-        # Save to file
-        with open(download_path, 'wb') as f:
-            f.write(file_io.getvalue())
-        
-        file_size = os.path.getsize(download_path)
-        
-        logger.info(f"✅ File downloaded successfully: {download_path}")
-        
-        response = f"File '{filename}' downloaded successfully!\n\n"
-        response += f"📄 {filename}\n"
-        response += f"📁 Saved to: {download_path}\n"
-        response += f"📏 Size: {DriveToolHelper._format_file_size(file_size)}\n"
-        
-        return response
-        
-    except Exception as e:
-        logger.error(f"❌ Failed to download file: {str(e)}")
-        return f"Failed to download file: {str(e)}"
-
-@tool
-def list_recent_drive_files_tool(input_data: ListFilesInput, auth_manager) -> str:
-    """
-    List recent files from Google Drive.
-    
-    Shows recently modified files with optional filtering by file types.
-    Useful for finding recently worked on documents.
-    """
-    logger.info(f"📋 Listing {input_data.max_results} recent Drive files")
-    
-    try:
-        # Get authenticated Drive client
-        client = auth_manager.get_authenticated_client('drive', 'v3', input_data.user_id)
-        if not client:
-            raise Exception("Drive authentication failed")
-        
-        # Build query for file types
-        query_parts = ["trashed = false"]
-        
-        if input_data.file_types:
-            type_conditions = []
-            for file_type in input_data.file_types:
+        try:
+            client = auth_manager.get_authenticated_client('drive', 'v3', input_data.user_id)
+            if not client:
+                raise Exception("Drive authentication failed")
+            
+            # Build search query
+            search_parts = []
+            
+            if input_data.query:
+                search_parts.append(f"name contains '{input_data.query}'")
+            
+            if input_data.file_type:
                 # Handle common file type shortcuts
                 type_mapping = {
                     'pdf': 'application/pdf',
@@ -438,122 +235,320 @@ def list_recent_drive_files_tool(input_data: ListFilesInput, auth_manager) -> st
                     'audio': 'audio/'
                 }
                 
-                mime_type = type_mapping.get(file_type.lower(), file_type)
+                mime_type = type_mapping.get(input_data.file_type.lower(), input_data.file_type)
                 if mime_type.endswith('/'):
-                    type_conditions.append(f"mimeType contains '{mime_type}'")
+                    search_parts.append(f"mimeType contains '{mime_type}'")
                 else:
-                    type_conditions.append(f"mimeType = '{mime_type}'")
+                    search_parts.append(f"mimeType = '{mime_type}'")
             
-            if type_conditions:
-                query_parts.append(f"({' or '.join(type_conditions)})")
+            if input_data.folder_id:
+                search_parts.append(f"'{input_data.folder_id}' in parents")
+            
+            if not input_data.include_trashed:
+                search_parts.append("trashed = false")
+            
+            search_query = " and ".join(search_parts) if search_parts else "trashed = false"
+            
+            # Execute search
+            results = client.files().list(
+                q=search_query,
+                pageSize=input_data.max_results,
+                fields="files(id,name,size,mimeType,modifiedTime,webViewLink,parents,shared)"
+            ).execute()
+            
+            files = results.get('files', [])
+            
+            logger.info(f"✅ Found {len(files)} files")
+            
+            # Format response
+            if files:
+                response = f"Found {len(files)} files in Google Drive:\n\n"
+                for i, file in enumerate(files, 1):
+                    response += f"{i}. {DriveToolHelper._format_file_summary(file)}\n"
+                return response
+            else:
+                return "No files found matching the search criteria."
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to search files: {str(e)}")
+            return f"Failed to search files: {str(e)}"
+    
+    @tool
+    def share_drive_file_tool(input_data: ShareFileInput) -> str:
+        """
+        Share a Google Drive file with users or make it public.
         
-        search_query = " and ".join(query_parts)
+        Grants access to specific users via email or makes file publicly
+        accessible. Supports different permission levels.
+        """
+        logger.info(f"🔗 Sharing Drive file: {input_data.file_id}")
         
-        # Get recent files
-        results = client.files().list(
-            q=search_query,
-            pageSize=input_data.max_results,
-            orderBy='modifiedTime desc' if input_data.recent else 'name',
-            fields="files(id,name,size,mimeType,modifiedTime,webViewLink,parents,shared,owners)"
-        ).execute()
-        
-        files = results.get('files', [])
-        
-        logger.info(f"✅ Retrieved {len(files)} recent files")
-        
-        # Format response
-        if files:
-            response = f"Recent files from Google Drive ({len(files)} found):\n\n"
-            for i, file in enumerate(files, 1):
-                response += f"{i}. {DriveToolHelper._format_file_summary(file)}\n"
+        try:
+            client = auth_manager.get_authenticated_client('drive', 'v3', input_data.user_id)
+            if not client:
+                raise Exception("Drive authentication failed")
+            
+            # Get file details
+            file_metadata = client.files().get(fileId=input_data.file_id, fields='name,webViewLink').execute()
+            filename = file_metadata['name']
+            
+            permissions_created = []
+            
+            # Share with specific users
+            if input_data.email_addresses:
+                for email in input_data.email_addresses:
+                    permission = {
+                        'type': 'user',
+                        'role': input_data.role,
+                        'emailAddress': email
+                    }
+                    
+                    result = client.permissions().create(
+                        fileId=input_data.file_id,
+                        body=permission,
+                        sendNotificationEmail=input_data.send_notification
+                    ).execute()
+                    
+                    permissions_created.append({
+                        'email': email,
+                        'role': input_data.role,
+                        'permission_id': result['id']
+                    })
+            
+            # Make public if requested
+            if input_data.make_public:
+                public_permission = {
+                    'type': 'anyone',
+                    'role': 'reader'
+                }
+                
+                result = client.permissions().create(
+                    fileId=input_data.file_id,
+                    body=public_permission
+                ).execute()
+                
+                permissions_created.append({
+                    'type': 'public',
+                    'role': 'reader',
+                    'permission_id': result['id']
+                })
+            
+            logger.info(f"✅ File shared successfully: {input_data.file_id}")
+            
+            # Format response
+            response = f"File '{filename}' shared successfully!\n\n"
+            response += f"📄 {filename}\n"
+            response += f"🔗 View link: {file_metadata['webViewLink']}\n"
+            
+            if input_data.email_addresses:
+                response += f"📧 Shared with {len(input_data.email_addresses)} user(s):\n"
+                for perm in permissions_created:
+                    if 'email' in perm:
+                        response += f"   • {perm['email']} ({perm['role']})\n"
+            
+            if input_data.make_public:
+                response += "🌍 Public access: Anyone with link can view\n"
+            
             return response
-        else:
-            return "No recent files found in Google Drive."
-        
-    except Exception as e:
-        logger.error(f"❌ Failed to list recent files: {str(e)}")
-        return f"Failed to list recent files: {str(e)}"
-
-@tool
-def get_drive_file_info_tool(input_data: GetFileInfoInput, auth_manager) -> str:
-    """
-    Get detailed information about a specific Google Drive file.
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to share file: {str(e)}")
+            return f"Failed to share file: {str(e)}"
     
-    Retrieves comprehensive file details including permissions,
-    sharing status, and metadata.
-    """
-    logger.info(f"🔍 Getting Drive file info: {input_data.file_id}")
+    @tool
+    def download_drive_file_tool(input_data: DownloadFileInput) -> str:
+        """
+        Download a file from Google Drive to local storage.
+        
+        Downloads file content and saves to specified location.
+        Returns download confirmation and file details.
+        """
+        logger.info(f"📥 Downloading Drive file: {input_data.file_id}")
+        
+        try:
+            client = auth_manager.get_authenticated_client('drive', 'v3', input_data.user_id)
+            if not client:
+                raise Exception("Drive authentication failed")
+            
+            # Get file metadata
+            file_metadata = client.files().get(fileId=input_data.file_id).execute()
+            filename = file_metadata['name']
+            
+            # Determine download path
+            if input_data.download_path is None:
+                download_path = filename
+            elif os.path.isdir(input_data.download_path):
+                download_path = os.path.join(input_data.download_path, filename)
+            else:
+                download_path = input_data.download_path
+            
+            # Download file
+            request = client.files().get_media(fileId=input_data.file_id)
+            file_io = io.BytesIO()
+            downloader = MediaIoBaseDownload(file_io, request)
+            
+            done = False
+            while done is False:
+                status, done = downloader.next_chunk()
+            
+            # Save to file
+            with open(download_path, 'wb') as f:
+                f.write(file_io.getvalue())
+            
+            file_size = os.path.getsize(download_path)
+            
+            logger.info(f"✅ File downloaded successfully: {download_path}")
+            
+            response = f"File '{filename}' downloaded successfully!\n\n"
+            response += f"📄 {filename}\n"
+            response += f"📁 Saved to: {download_path}\n"
+            response += f"📏 Size: {DriveToolHelper._format_file_size(file_size)}\n"
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to download file: {str(e)}")
+            return f"Failed to download file: {str(e)}"
     
-    try:
-        # Get authenticated Drive client
-        client = auth_manager.get_authenticated_client('drive', 'v3', input_data.user_id)
-        if not client:
-            raise Exception("Drive authentication failed")
+    @tool
+    def list_recent_drive_files_tool(input_data: ListFilesInput) -> str:
+        """
+        List recent files from Google Drive.
         
-        # Get file details
-        file_details = client.files().get(
-            fileId=input_data.file_id,
-            fields="*"
-        ).execute()
+        Shows recently modified files with optional filtering by file types.
+        Useful for finding recently worked on documents.
+        """
+        logger.info(f"📋 Listing {input_data.max_results} recent Drive files")
         
-        # Get permissions
-        permissions = client.permissions().list(fileId=input_data.file_id).execute()
-        
-        logger.info(f"✅ Retrieved file details: {input_data.file_id}")
-        
-        # Format detailed response
-        response = f"Google Drive File Details:\n\n"
-        response += DriveToolHelper._format_file_summary(file_details)
-        
-        # Add description if present
-        description = file_details.get('description', '')
-        if description:
-            response += f"   📝 Description: {description[:200]}{'...' if len(description) > 200 else ''}\n"
-        
-        # Add sharing information
-        perm_list = permissions.get('permissions', [])
-        if perm_list:
-            response += f"   👥 Shared with {len(perm_list)} user(s):\n"
-            for perm in perm_list[:5]:  # Limit to first 5
-                perm_type = perm.get('type', 'unknown')
-                role = perm.get('role', 'unknown')
-                if perm_type == 'anyone':
-                    response += f"      • Public access ({role})\n"
-                else:
-                    email = perm.get('emailAddress', 'Unknown user')
-                    response += f"      • {email} ({role})\n"
-            if len(perm_list) > 5:
-                response += f"      ... and {len(perm_list) - 5} more\n"
-        
-        return response
-        
-    except Exception as e:
-        logger.error(f"❌ Failed to get file info: {str(e)}")
-        return f"Failed to get file info: {str(e)}"
-
-# Tool registry for integration with LangGraph
-def get_drive_tools(auth_manager) -> List[BaseTool]:
-    """
-    Get list of Drive tools configured with auth manager.
+        try:
+            client = auth_manager.get_authenticated_client('drive', 'v3', input_data.user_id)
+            if not client:
+                raise Exception("Drive authentication failed")
+            
+            # Build query for file types
+            query_parts = ["trashed = false"]
+            
+            if input_data.file_types:
+                type_conditions = []
+                for file_type in input_data.file_types:
+                    # Handle common file type shortcuts
+                    type_mapping = {
+                        'pdf': 'application/pdf',
+                        'doc': 'application/vnd.google-apps.document',
+                        'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                        'sheet': 'application/vnd.google-apps.spreadsheet',
+                        'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                        'image': 'image/',
+                        'video': 'video/',
+                        'audio': 'audio/'
+                    }
+                    
+                    mime_type = type_mapping.get(file_type.lower(), file_type)
+                    if mime_type.endswith('/'):
+                        type_conditions.append(f"mimeType contains '{mime_type}'")
+                    else:
+                        type_conditions.append(f"mimeType = '{mime_type}'")
+                
+                if type_conditions:
+                    query_parts.append(f"({' or '.join(type_conditions)})")
+            
+            search_query = " and ".join(query_parts)
+            
+            # Get recent files
+            results = client.files().list(
+                q=search_query,
+                pageSize=input_data.max_results,
+                orderBy='modifiedTime desc' if input_data.recent else 'name',
+                fields="files(id,name,size,mimeType,modifiedTime,webViewLink,parents,shared,owners)"
+            ).execute()
+            
+            files = results.get('files', [])
+            
+            logger.info(f"✅ Retrieved {len(files)} recent files")
+            
+            # Format response
+            if files:
+                response = f"Recent files from Google Drive ({len(files)} found):\n\n"
+                for i, file in enumerate(files, 1):
+                    response += f"{i}. {DriveToolHelper._format_file_summary(file)}\n"
+                return response
+            else:
+                return "No recent files found in Google Drive."
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to list recent files: {str(e)}")
+            return f"Failed to list recent files: {str(e)}"
     
-    Returns LangChain tools ready for use with ToolNode.
-    """
-    logger.info("🔧 Creating Drive tools registry")
+    @tool
+    def get_drive_file_info_tool(input_data: GetFileInfoInput) -> str:
+        """
+        Get detailed information about a specific Google Drive file.
+        
+        Retrieves comprehensive file details including permissions,
+        sharing status, and metadata.
+        """
+        logger.info(f"🔍 Getting Drive file info: {input_data.file_id}")
+        
+        try:
+            client = auth_manager.get_authenticated_client('drive', 'v3', input_data.user_id)
+            if not client:
+                raise Exception("Drive authentication failed")
+            
+            # Get file details
+            file_details = client.files().get(
+                fileId=input_data.file_id,
+                fields="*"
+            ).execute()
+            
+            # Get permissions
+            permissions = client.permissions().list(fileId=input_data.file_id).execute()
+            
+            logger.info(f"✅ Retrieved file details: {input_data.file_id}")
+            
+            # Format detailed response
+            response = f"Google Drive File Details:\n\n"
+            response += DriveToolHelper._format_file_summary(file_details)
+            
+            # Add description if present
+            description = file_details.get('description', '')
+            if description:
+                response += f"   📝 Description: {description[:200]}{'...' if len(description) > 200 else ''}\n"
+            
+            # Add sharing information
+            perm_list = permissions.get('permissions', [])
+            if perm_list:
+                response += f"   👥 Shared with {len(perm_list)} user(s):\n"
+                for perm in perm_list[:5]:  # Limit to first 5
+                    perm_type = perm.get('type', 'unknown')
+                    role = perm.get('role', 'unknown')
+                    if perm_type == 'anyone':
+                        response += f"      • Public access ({role})\n"
+                    else:
+                        email = perm.get('emailAddress', 'Unknown user')
+                        response += f"      • {email} ({role})\n"
+                if len(perm_list) > 5:
+                    response += f"      ... and {len(perm_list) - 5} more\n"
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to get file info: {str(e)}")
+            return f"Failed to get file info: {str(e)}"
     
-    # Create tools with auth_manager bound
+    # Return list of tools
     tools = [
-        upload_file_to_drive_tool.bind(auth_manager=auth_manager),
-        search_files_in_drive_tool.bind(auth_manager=auth_manager),
-        share_drive_file_tool.bind(auth_manager=auth_manager),
-        download_drive_file_tool.bind(auth_manager=auth_manager),
-        list_recent_drive_files_tool.bind(auth_manager=auth_manager),
-        get_drive_file_info_tool.bind(auth_manager=auth_manager)
+        upload_file_to_drive_tool,
+        search_files_in_drive_tool,
+        share_drive_file_tool,
+        download_drive_file_tool,
+        list_recent_drive_files_tool,
+        get_drive_file_info_tool
     ]
     
-    logger.info(f"✅ Created {len(tools)} Drive tools")
+    logger.info(f"✅ Created {len(tools)} Drive tools with auth injection")
     return tools
 
-# Tool metadata for the orchestrator
+# Tool metadata for the orchestrator - KEEP YOUR EXISTING METADATA
 DRIVE_TOOL_METADATA = {
     "upload_file_to_drive_tool": {
         "description": "Upload files to Google Drive",

@@ -12,14 +12,16 @@ logger = logging.getLogger(__name__)
 
 class StreamlinedLLMPlanner:
     """
-    Streamlined LLM planner for generating execution plans.
+    FIXED: LLM planner with parameter schemas aligned to tool inputs.
     
-    Simplified to work with LangChain tools and ToolNode execution.
-    Removes complex parameter mapping since tools now handle their own validation.
+    CHANGES:
+    - Prompts now generate EXACT parameter names that tools expect
+    - No more parameter mapping needed
+    - Clean alignment between LLM output and Pydantic tool schemas
     """
     
     def __init__(self):
-        logger.info("🤖 Initializing StreamlinedLLMPlanner")
+        logger.info("🤖 Initializing StreamlinedLLMPlanner with aligned schemas")
         
         try:
             # Create LLM instance with optimized config
@@ -35,8 +37,8 @@ class StreamlinedLLMPlanner:
             )
             logger.info("✅ ChatNVIDIA instance created successfully")
             
-            logger.info("📝 Building streamlined system prompt")
-            self.system_prompt = self._build_system_prompt()
+            logger.info("📝 Building ALIGNED system prompt")
+            self.system_prompt = self._build_aligned_system_prompt()
             logger.info(f"✅ System prompt built (length: {len(self.system_prompt)} chars)")
             
             logger.info("✅ StreamlinedLLMPlanner initialization complete")
@@ -48,10 +50,9 @@ class StreamlinedLLMPlanner:
     
     def create_plan(self, user_request: str, user_context: Dict[str, Any] = None) -> ExecutionPlan:
         """
-        Generate execution plan from user request.
+        Generate execution plan from user request with ALIGNED parameters.
         
-        Simplified planning focused on tool selection and sequencing
-        rather than complex parameter mapping.
+        Now generates parameters that exactly match tool Pydantic schemas.
         """
         logger.info(f"📋 Creating plan for request: {user_request}")
         logger.info(f"📊 User context: {user_context}")
@@ -93,7 +94,7 @@ class StreamlinedLLMPlanner:
             validation_issues = self._validate_plan(execution_plan)
             if validation_issues:
                 logger.warning(f"⚠️ Plan validation issues: {validation_issues}")
-                # Continue anyway - tools will handle parameter validation
+                # Continue anyway - basic validation only
             
             return execution_plan
             
@@ -125,52 +126,67 @@ class StreamlinedLLMPlanner:
             logger.error(traceback.format_exc())
             return self._create_fallback_plan(user_request, str(e))
     
-    def _build_system_prompt(self) -> str:
-        """Build streamlined system prompt focused on tool orchestration"""
-        logger.info("📝 Building streamlined system prompt")
+    def _build_aligned_system_prompt(self) -> str:
+        """
+        FIXED: Build system prompt with EXACT parameter names that match tool schemas.
+        
+        This eliminates the need for parameter mapping by ensuring LLM output
+        exactly matches what tools expect.
+        """
+        logger.info("📝 Building ALIGNED system prompt with exact tool schemas")
         
         prompt = """
 You are an AI workflow planner for a Google productivity assistant with Gmail, Calendar, and Drive integration.
 
 CRITICAL: Respond with ONLY valid JSON. No explanations, no markdown, no additional text.
 
-AVAILABLE TOOLS (Simplified):
+IMPORTANT: Use EXACT parameter names that match the tool schemas below. This is critical for execution.
+
+AVAILABLE TOOLS WITH EXACT SCHEMAS:
 
 1. GMAIL TOOLS:
-   - send_email_tool: Send emails to recipients
-   - search_emails_tool: Search emails with filters (sender, date_range, keywords)
-   - read_recent_emails_tool: Read recent emails from inbox
-   - get_email_threads_tool: Get email conversation threads
+   - send_email_tool:
+     Parameters: to, subject, body, cc (optional), bcc (optional), user_id
+   - search_emails_tool:
+     Parameters: sender (optional), date_range (optional), keywords (optional), has_attachment (optional), max_results, user_id
+   - read_recent_emails_tool:
+     Parameters: max_results, query (optional), include_attachments, user_id
+   - get_email_threads_tool:
+     Parameters: thread_id (optional), query (optional), include_attachments, user_id
 
 2. CALENDAR TOOLS:
-   - create_calendar_event_tool: Create events with optional Google Meet
-   - list_calendar_events_tool: List events in date range
-   - update_calendar_event_tool: Update existing events
-   - delete_calendar_event_tool: Delete events
-   - get_calendar_event_tool: Get event details
+   - create_calendar_event_tool:
+     Parameters: title, start_time, end_time, description (optional), attendees (optional), location (optional), include_meet, timezone, user_id
+   - list_calendar_events_tool:
+     Parameters: start_date, end_date (optional), max_results, timezone, user_id
+   - update_calendar_event_tool:
+     Parameters: event_id, title (optional), start_time (optional), end_time (optional), description (optional), attendees (optional), location (optional), add_meet, timezone, user_id
+   - delete_calendar_event_tool:
+     Parameters: event_id, user_id
+   - get_calendar_event_tool:
+     Parameters: event_id, user_id
 
 3. DRIVE TOOLS:
-   - upload_file_to_drive_tool: Upload files to Drive
-   - search_files_in_drive_tool: Search Drive files
-   - share_drive_file_tool: Share files with users
-   - download_drive_file_tool: Download files
-   - list_recent_drive_files_tool: List recent files
-   - get_drive_file_info_tool: Get file details
+   - upload_file_to_drive_tool:
+     Parameters: file_path (optional), filename (optional), folder_id (optional), description (optional), make_public, user_id
+   - search_files_in_drive_tool:
+     Parameters: query (optional), file_type (optional), folder_id (optional), max_results, include_trashed, user_id
+   - share_drive_file_tool:
+     Parameters: file_id, email_addresses (optional), role, make_public, send_notification, user_id
+   - download_drive_file_tool:
+     Parameters: file_id, download_path (optional), user_id
+   - list_recent_drive_files_tool:
+     Parameters: max_results, file_types (optional), recent, user_id
+   - get_drive_file_info_tool:
+     Parameters: file_id, user_id
 
-PLANNING PRINCIPLES:
-1. Break complex requests into logical steps
-2. Use simple, specific tool names from the list above
-3. Include realistic parameter values in JSON format
-4. Consider dependencies between steps
-5. Focus on workflow orchestration, not parameter details
-6. Use template variables for data that flows between steps
-
-PARAMETER GUIDELINES:
-- Use actual dates from context (never "today", "tomorrow")
-- For Gmail: date_range as ["start_date", "end_date"] in YYYY-MM-DD format
-- For Calendar: times in ISO format "YYYY-MM-DDTHH:MM:SSZ"
+PARAMETER GUIDELINES (USE EXACT NAMES):
+- Use actual dates from context (never "today", "tomorrow") 
+- For Gmail date_range: ["YYYY/MM/DD", "YYYY/MM/DD"] format (Gmail API format)
+- For Calendar times: "YYYY-MM-DDTHH:MM:SSZ" format (ISO format)
 - For shared data: use template variables like "{{attendee_emails}}" or "{{meeting_link}}"
-- Keep parameters simple - tools will handle validation
+- For user_id: always use "{{user_id}}" template variable
+- Keep parameters simple but use EXACT names from schemas above
 
 MANDATORY JSON RESPONSE FORMAT:
 {
@@ -183,22 +199,25 @@ MANDATORY JSON RESPONSE FORMAT:
       "description": "Human-readable description of this step",
       "parameters": {
         "sender": "john@company.com",
-        "max_results": 10
+        "max_results": 10,
+        "user_id": "{{user_id}}"
       },
       "dependencies": [],
       "expected_outputs": ["email_addresses", "contact_list"]
     },
     {
       "step_index": 2,
-      "tool": "calendar_tool", 
-      "action": "create_calendar_event_tool",
+      "tool": "calendar_tool",
+      "action": "create_calendar_event_tool", 
       "description": "Create meeting with found contacts",
       "parameters": {
         "title": "Team Meeting",
         "start_time": "2025-01-31T14:00:00Z",
         "end_time": "2025-01-31T15:00:00Z",
         "attendees": "{{contact_list}}",
-        "include_meet": true
+        "include_meet": true,
+        "timezone": "UTC",
+        "user_id": "{{user_id}}"
       },
       "dependencies": [1],
       "expected_outputs": ["event_id", "meet_link"]
@@ -208,16 +227,18 @@ MANDATORY JSON RESPONSE FORMAT:
   "requires_confirmation": false
 }
 
-IMPORTANT RULES:
-- Use EXACT tool names from the list above
-- Each step MUST have a clear "description" field
+CRITICAL ALIGNMENT RULES:
+- Use EXACT parameter names from the schemas above
+- Always include user_id: "{{user_id}}" in every tool call
 - Use template variables ({{variable_name}}) for data from previous steps
-- Keep dependencies simple and logical
-- Focus on high-level workflow, not parameter complexity
+- For Gmail sender parameter: use "sender" not "from_email"
+- For Calendar title parameter: use "title" not "subject" 
+- For Drive query parameter: use "query" not "search_term"
+- Include all required parameters, mark optional ones clearly
 
 RESPOND WITH ONLY THE JSON OBJECT ABOVE.
 """
-        logger.info("✅ Streamlined system prompt built")
+        logger.info("✅ ALIGNED system prompt built")
         return prompt
     
     def _build_planning_prompt(self, user_request: str, user_context: Dict[str, Any]) -> str:
@@ -251,19 +272,20 @@ USER REQUEST: {user_request}{context_str}
 
 Create a step-by-step execution plan using the available tools.
 
-REQUIREMENTS:
+CRITICAL REQUIREMENTS:
 1. Respond with ONLY the JSON object - NO explanatory text
-2. Use EXACT tool names from the system prompt
+2. Use EXACT parameter names from the tool schemas in the system prompt
 3. Use actual dates from context where provided
-4. Include clear step descriptions
+4. Include user_id: "{{{{user_id}}}}" in every tool call
 5. Set up proper dependencies between steps
 6. Use template variables for data flow between steps
 
-FOCUS ON:
-- Breaking the request into logical steps
-- Selecting the right tools for each step
-- Creating a clear execution sequence
-- Using realistic parameter values
+PARAMETER ALIGNMENT CHECKLIST:
+- Gmail: Use "sender" not "from_email"
+- Calendar: Use "title" not "subject"
+- Drive: Use "query" not "search_term"
+- Always include required parameters
+- Use template variables for step dependencies
 
 RESPOND WITH ONLY THE JSON OBJECT:
 """
@@ -429,7 +451,7 @@ RESPOND WITH ONLY THE JSON OBJECT:
                 tool=ToolType.GMAIL,
                 action=ActionType.READ_EMAILS,
                 description=f"Fallback: Check recent emails (Planning error: {error[:100]})",
-                parameters={"max_results": 5},
+                parameters={"max_results": 5, "query": None, "include_attachments": False, "user_id": "{{user_id}}"},
                 dependencies=[],
                 expected_outputs=["emails"]
             )
@@ -454,7 +476,7 @@ def create_llm_planner() -> StreamlinedLLMPlanner:
     Factory function to create a StreamlinedLLMPlanner instance.
     
     Returns:
-        Configured StreamlinedLLMPlanner instance
+        Configured StreamlinedLLMPlanner instance with aligned schemas
     """
     logger.info("🏭 Creating StreamlinedLLMPlanner instance")
     return StreamlinedLLMPlanner()
@@ -507,7 +529,8 @@ def validate_plan_structure(plan: ExecutionPlan) -> Dict[str, Any]:
 if __name__ == "__main__":
     # Example usage for testing
     print("🤖 StreamlinedLLMPlanner Test")
-    print("This module handles plan generation for LangGraph workflows")
+    print("FIXED: Parameter schemas now aligned with tool inputs")
+    print("RESULT: No more parameter mapping needed!")
     
     try:
         planner = create_llm_planner()
