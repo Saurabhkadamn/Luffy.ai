@@ -40,23 +40,18 @@ def _ensure_directories():
 # Ensure directories exist before configuring logging
 _ensure_directories()
 
-# Configure logging (now that logs directory exists)
-try:
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler('logs/app.log'),
-            logging.StreamHandler()
-        ]
-    )
-except Exception:
-    # Fallback to console-only logging if file logging fails
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[logging.StreamHandler()]
-    )
+# CLEAN LOGGING CONFIGURATION
+logging.basicConfig(
+    level=logging.ERROR,  # Only show errors by default
+    format='%(levelname)s: %(message)s',  # Simple format
+    handlers=[logging.StreamHandler()]  # Console only
+)
+
+# Enable specific loggers for workflow tracking
+logging.getLogger('agents.llm_planner').setLevel(logging.INFO)
+logging.getLogger('agents.agent_orchestrator').setLevel(logging.INFO) 
+logging.getLogger('agents.graph_builder').setLevel(logging.INFO)
+logging.getLogger('__main__').setLevel(logging.WARNING)  # Reduce main app noise
 
 logger = logging.getLogger(__name__)
 
@@ -95,50 +90,37 @@ def initialize_logging_and_directories():
         data_dir = Path("data/checkpoints")
         data_dir.mkdir(parents=True, exist_ok=True)
         
-        # Check if we need to add file handler (if not already added)
-        root_logger = logging.getLogger()
-        has_file_handler = any(isinstance(h, logging.FileHandler) for h in root_logger.handlers)
-        
-        if not has_file_handler:
-            try:
-                file_handler = logging.FileHandler('logs/app.log')
-                file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-                root_logger.addHandler(file_handler)
-                logger.info("📁 File logging enabled")
-            except Exception as e:
-                logger.warning(f"⚠️ Could not enable file logging: {e}")
-        
-        logger.info("📁 Directories initialized successfully")
+        logger.debug("Directories initialized successfully")
         
     except Exception as e:
-        logger.error(f"❌ Error initializing directories: {str(e)}")
+        logger.error(f"Error initializing directories: {str(e)}")
 
 def validate_environment():
     """Validate environment configuration and dependencies"""
     try:
-        logger.info("🔍 Validating environment configuration")
+        logger.debug("Validating environment configuration")
         
         # Validate settings
         settings.validate()
-        logger.info("✅ Settings validation passed")
+        logger.debug("Settings validation passed")
         
         # Check required directories
         required_dirs = ["logs", "data", "data/checkpoints"]
         for dir_path in required_dirs:
             if not os.path.exists(dir_path):
                 os.makedirs(dir_path, exist_ok=True)
-                logger.info(f"📁 Created directory: {dir_path}")
+                logger.debug(f"Created directory: {dir_path}")
         
         # Check Google credentials file
         if not os.path.exists(settings.GOOGLE_CREDENTIALS_JSON):
             raise FileNotFoundError(f"Google credentials file not found: {settings.GOOGLE_CREDENTIALS_JSON}")
         
-        logger.info("✅ Environment validation completed")
+        logger.debug("Environment validation completed")
         return True
         
     except Exception as e:
-        logger.error(f"❌ Environment validation failed: {str(e)}")
-        st.error(f"⚠️ **Configuration Error**: {str(e)}")
+        logger.error(f"Environment validation failed: {str(e)}")
+        st.error(f"Configuration Error: {str(e)}")
         st.error("Please check your environment setup and try again.")
         return False
 
@@ -155,7 +137,7 @@ def initialize_user_session(auth_manager: AuthManager) -> str:
         # Set session start time if not already set
         if 'session_start_time' not in st.session_state:
             st.session_state.session_start_time = datetime.now()
-            logger.info(f"🕐 Session started for user: {user_id}")
+            logger.debug(f"Session started for user: {user_id}")
         
         # Initialize session metadata
         if 'session_metadata' not in st.session_state:
@@ -169,11 +151,11 @@ def initialize_user_session(auth_manager: AuthManager) -> str:
         # Update last activity
         st.session_state.session_metadata['last_activity'] = datetime.now().isoformat()
         
-        logger.info(f"✅ User session initialized: {user_id}")
+        logger.debug(f"User session initialized: {user_id}")
         return user_id
         
     except Exception as e:
-        logger.error(f"❌ Error initializing user session: {str(e)}")
+        logger.error(f"Error initializing user session: {str(e)}")
         raise
 
 def handle_oauth_callback():
@@ -186,7 +168,7 @@ def handle_oauth_callback():
         query_params = st.query_params
         
         if 'code' in query_params:
-            logger.info("🔐 OAuth callback detected")
+            logger.debug("OAuth callback detected")
             
             # Ensure user stays in main app
             st.session_state['demo_started'] = True
@@ -195,14 +177,14 @@ def handle_oauth_callback():
             # Mark that we're processing OAuth
             if 'processing_oauth' not in st.session_state:
                 st.session_state['processing_oauth'] = True
-                logger.info("🔄 Processing OAuth callback...")
+                logger.debug("Processing OAuth callback...")
             
             return True
         
         return False
         
     except Exception as e:
-        logger.error(f"❌ Error handling OAuth callback: {str(e)}")
+        logger.error(f"Error handling OAuth callback: {str(e)}")
         return False
 
 def show_app_header():
@@ -253,12 +235,15 @@ def show_sidebar_info(auth_manager: AuthManager, user_id: str):
         
         # System info
         with st.expander("ℹ️ System Info"):
-            stats = get_user_stats()
-            
-            if "error" not in stats:
-                st.json(stats)
-            else:
-                st.error(f"Error: {stats['error']}")
+            try:
+                stats = get_user_stats()
+                
+                if "error" not in stats:
+                    st.json(stats)
+                else:
+                    st.error(f"Error: {stats['error']}")
+            except Exception as e:
+                st.error(f"Error getting stats: {e}")
             
             # Show app version
             st.caption("**Version**: 2.0.0-rebuild")
@@ -321,7 +306,7 @@ def handle_errors_gracefully():
         if 'error_state' in st.session_state:
             error = st.session_state['error_state']
             
-            st.error(f"⚠️ **Application Error**: {error}")
+            st.error(f"Application Error: {error}")
             st.markdown("""
             **Possible solutions:**
             - Refresh the page
@@ -342,7 +327,7 @@ def handle_errors_gracefully():
         return False
         
     except Exception as e:
-        logger.error(f"❌ Error in error handler: {str(e)}")
+        logger.error(f"Error in error handler: {str(e)}")
         return False
 
 def cleanup_on_exit():
@@ -354,10 +339,10 @@ def cleanup_on_exit():
         # Log session end
         user_id = st.session_state.get('user_id')
         if user_id:
-            logger.info(f"🏁 Session ended for user: {user_id}")
+            logger.debug(f"Session ended for user: {user_id}")
         
     except Exception as e:
-        logger.error(f"❌ Error during cleanup: {str(e)}")
+        logger.error(f"Error during cleanup: {str(e)}")
 
 def main():
     """
@@ -385,7 +370,7 @@ def main():
             return
         
         # Initialize auth manager
-        logger.info("🔐 Initializing AuthManager")
+        logger.debug("Initializing AuthManager")
         auth_manager = AuthManager()
         
         # Initialize user session
@@ -396,7 +381,7 @@ def main():
         
         # Check if user has started the demo
         if 'demo_started' not in st.session_state and not oauth_callback:
-            logger.info("🎭 Showing landing page")
+            logger.debug("Showing landing page")
             if show_landing_page():
                 st.session_state.demo_started = True
                 st.rerun()
@@ -410,30 +395,30 @@ def main():
         
         # Check authentication status
         is_authenticated = auth_manager.is_authenticated(user_id)
-        logger.info(f"🔐 User {user_id} authentication status: {is_authenticated}")
+        logger.debug(f"User {user_id} authentication status: {is_authenticated}")
         
         # Main application flow
         if not is_authenticated:
-            logger.info(f"🔐 Showing authentication flow for user: {user_id}")
+            logger.debug(f"Showing authentication flow for user: {user_id}")
             show_authentication_flow(auth_manager, user_id)
         else:
-            logger.info(f"🎨 Showing main application for user: {user_id}")
+            logger.debug(f"Showing main application for user: {user_id}")
             show_main_application(auth_manager, user_id)
         
         # Update session metadata
         if 'session_metadata' in st.session_state:
             st.session_state.session_metadata['requests_processed'] += 1
         
-        logger.info(f"✅ App cycle completed for user: {user_id}")
+        logger.debug(f"App cycle completed for user: {user_id}")
         
     except Exception as e:
-        logger.error(f"❌ Critical error in main application: {str(e)}")
+        logger.error(f"Critical error in main application: {str(e)}")
         
         # Store error state for graceful handling
         st.session_state['error_state'] = str(e)
         
         # Show error to user
-        st.error(f"⚠️ **Critical Error**: {str(e)}")
+        st.error(f"Critical Error: {str(e)}")
         st.markdown("""
         **This error has been logged. Please try:**
         - Refreshing the page
@@ -502,7 +487,7 @@ if __name__ == "__main__":
         main()
         
     except KeyboardInterrupt:
-        logger.info("👋 Application stopped by user")
+        logger.info("Application stopped by user")
     except Exception as e:
-        logger.error(f"❌ Fatal error: {str(e)}")
+        logger.error(f"Fatal error: {str(e)}")
         print(f"Fatal error: {str(e)}")

@@ -41,7 +41,7 @@ class ModernGraphBuilder:
             auth_manager: Authentication manager for Google APIs
             tools_registry: Dict mapping tool types to LangChain tools
         """
-        logger.info("🏗️ Initializing ModernGraphBuilder")
+        logger.info("GRAPH: Initializing ModernGraphBuilder")
         
         try:
             self.auth_manager = auth_manager
@@ -56,22 +56,22 @@ class ModernGraphBuilder:
                     self.all_tools.append(tool)
                     self.tools_by_name[tool.name] = tool
             
-            logger.info(f"🔧 Registered {len(self.all_tools)} tools across {len(tools_registry)} categories")
-            logger.info(f"🔧 Tool categories: {list(tools_registry.keys())}")
-            logger.info(f"🔧 Tool names: {list(self.tools_by_name.keys())}")
+            logger.info(f"GRAPH: Registered {len(self.all_tools)} tools across {len(tools_registry)} categories")
+            logger.debug(f"Tool categories: {list(tools_registry.keys())}")
+            logger.debug(f"Tool names: {list(self.tools_by_name.keys())}")
             
             # Create ToolNode for executing tools
             if self.all_tools:
                 self.tool_node = ToolNode(self.all_tools)
-                logger.info("✅ ToolNode created successfully")
+                logger.debug("ToolNode created successfully")
             else:
-                logger.warning("⚠️ No tools registered - ToolNode not created")
+                logger.warning("No tools registered - ToolNode not created")
                 self.tool_node = None
             
-            logger.info("✅ ModernGraphBuilder initialization complete")
+            logger.info("GRAPH: ModernGraphBuilder initialization complete")
             
         except Exception as e:
-            logger.error(f"❌ Failed to initialize ModernGraphBuilder: {str(e)}")
+            logger.error(f"Failed to initialize ModernGraphBuilder: {str(e)}")
             logger.error(traceback.format_exc())
             raise
     
@@ -86,8 +86,8 @@ class ModernGraphBuilder:
         - Error handling and recovery
         - Progress tracking
         """
-        logger.info(f"🚀 Building workflow graph for: {plan.intent}")
-        logger.info(f"📋 Plan has {len(plan.steps)} steps")
+        logger.info(f"GRAPH: Building workflow graph for: {plan.intent}")
+        logger.info(f"GRAPH: Plan has {len(plan.steps)} steps")
         
         try:
             # Create StateGraph with our TypedDict state
@@ -125,11 +125,11 @@ class ModernGraphBuilder:
             # Finalize workflow ends the graph
             workflow.add_edge("finalize_workflow", END)
             
-            logger.info("✅ Workflow graph structure created")
+            logger.info("GRAPH: Workflow graph structure created")
             return workflow
             
         except Exception as e:
-            logger.error(f"❌ Error building workflow graph: {str(e)}")
+            logger.error(f"Error building workflow graph: {str(e)}")
             logger.error(traceback.format_exc())
             raise
     
@@ -137,11 +137,11 @@ class ModernGraphBuilder:
         """Create workflow start node"""
         def start_workflow(state: WorkflowState) -> Dict[str, Any]:
             """Initialize workflow execution"""
-            logger.info(f"🚀 Starting workflow: {state['plan'].intent}")
+            logger.info(f"WORKFLOW: Starting workflow: {state['plan'].intent}")
             
             # Initialize messages list for ToolNode
             return {
-                **update_workflow_status("executing", f"🚀 Starting workflow: {state['plan'].intent}"),
+                **update_workflow_status("executing", f"Starting workflow: {state['plan'].intent}"),
                 "messages": []  # Initialize empty messages list
             }
         
@@ -162,39 +162,39 @@ class ModernGraphBuilder:
             current_step = state["current_step"]
             total_steps = len(state["plan"].steps)
             
-            logger.info(f"⚡ Executing step {current_step}/{total_steps}")
+            logger.info(f"STEP: Executing step {current_step}/{total_steps}")
             
             try:
                 # Check if workflow is complete
                 if current_step > total_steps:
-                    logger.info("🎉 All steps completed, finalizing workflow")
-                    return update_workflow_status("completed", "🎉 All steps completed!")
+                    logger.info("WORKFLOW: All steps completed, finalizing workflow")
+                    return update_workflow_status("completed", "All steps completed!")
                 
                 # Get current step details
                 step = state["plan"].steps[current_step - 1]  # Convert to 0-based
-                logger.info(f"📋 Current step: {step.description}")
-                logger.info(f"🔧 Tool: {step.tool.value}, Action: {step.action.value}")
-                logger.info(f"📊 Step parameters: {step.parameters}")
+                logger.info(f"STEP: Current step: {step.description}")
+                logger.debug(f"Tool: {step.tool.value}, Action: {step.action.value}")
+                logger.debug(f"Step parameters: {step.parameters}")
                 
                 # Check if this step is already completed
                 if current_step in state["step_results"]:
                     existing_result = state["step_results"][current_step]
                     if existing_result.status == "completed":
-                        logger.info(f"✅ Step {current_step} already completed, moving to next")
+                        logger.info(f"STEP: Step {current_step} already completed, moving to next")
                         return {"current_step": current_step + 1}
                 
                 # Check if we're returning from tool execution
                 current_execution = state["shared_context"].get("current_execution", {})
                 if current_execution.get("step_index") == current_step and current_execution.get("tool_executed", False):
-                    logger.info(f"🔄 Processing tool execution results for step {current_step}")
+                    logger.info(f"STEP: Processing tool execution results for step {current_step}")
                     return self._process_tool_results(state, step, current_step)
                 
                 # FIXED: Prepare and generate tool call for this step
-                logger.info(f"🎯 Preparing tool call for step {current_step}")
+                logger.info(f"TOOL: Preparing tool call for step {current_step}")
                 tool_call_message = self._generate_tool_call(state, step, current_step)
                 
                 if not tool_call_message:
-                    logger.error(f"❌ Failed to generate tool call for step {current_step}")
+                    logger.error(f"Failed to generate tool call for step {current_step}")
                     return self._create_failed_step_result(current_step, step, "Failed to generate tool call")
                 
                 # Store execution context and add tool call to messages
@@ -209,20 +209,17 @@ class ModernGraphBuilder:
                         }
                     },
                     "messages": state.get("messages", []) + [tool_call_message],
-                    "progress_messages": [f"🔄 Executing step {current_step}: {step.description}"]
+                    "progress_messages": [f"Executing step {current_step}: {step.description}"]
                 }
                 
-                # DEBUG LOGGING ADDED:
-                logger.info(f"🔍 DEBUG: Updated state keys: {list(updated_state.keys())}")
-                logger.info(f"🔍 DEBUG: Messages being passed: {updated_state['messages']}")
-                logger.info(f"🔍 DEBUG: Last message type: {type(updated_state['messages'][-1]) if updated_state['messages'] else 'NO MESSAGES'}")
-                logger.info(f"🔍 DEBUG: Message content: {updated_state['messages'][-1] if updated_state['messages'] else 'NO MESSAGES'}")
+                logger.debug(f"Updated state keys: {list(updated_state.keys())}")
+                logger.debug(f"Messages being passed: {len(updated_state['messages'])}")
                 
-                logger.info(f"✅ Tool call generated for step {current_step}")
+                logger.info(f"TOOL: Tool call generated for step {current_step}")
                 return updated_state
                 
             except Exception as e:
-                logger.error(f"❌ Error in step executor: {str(e)}")
+                logger.error(f"Error in step executor: {str(e)}")
                 logger.error(traceback.format_exc())
                 return self._create_failed_step_result(current_step, step if 'step' in locals() else None, str(e))
         
@@ -238,19 +235,19 @@ class ModernGraphBuilder:
         - Proper tool name mapping
         """
         try:
-            logger.info(f"🛠️ Generating tool call for {step.action.value}")
+            logger.debug(f"Generating tool call for {step.action.value}")
             
             # FIXED: Resolve template variables in parameters
             resolved_params = self._resolve_template_variables(step.parameters, state)
-            logger.info(f"📊 Resolved parameters: {resolved_params}")
+            logger.debug(f"Resolved parameters: {resolved_params}")
             
             # FIXED: Map action to actual tool name
             tool_name = self._map_action_to_tool_name(step.action)
-            logger.info(f"🔧 Mapped to tool: {tool_name}")
+            logger.debug(f"Mapped to tool: {tool_name}")
             
             # Verify tool exists
             if tool_name not in self.tools_by_name:
-                logger.error(f"❌ Tool not found: {tool_name}")
+                logger.error(f"Tool not found: {tool_name}")
                 logger.error(f"Available tools: {list(self.tools_by_name.keys())}")
                 return None
             
@@ -268,17 +265,13 @@ class ModernGraphBuilder:
                 tool_calls=[tool_call]
             )
             
-            # DEBUG LOGGING ADDED:
-            logger.info(f"🔍 DEBUG: Created AIMessage: {ai_message}")
-            logger.info(f"🔍 DEBUG: Tool calls: {ai_message.tool_calls}")
-            logger.info(f"🔍 DEBUG: Tool call ID: {tool_call['id']}")
-            logger.info(f"🔍 DEBUG: Tool call args: {tool_call['args']}")
+            logger.debug(f"Created AIMessage with tool call ID: {tool_call['id']}")
             
-            logger.info(f"✅ Tool call generated: {tool_call['id']}")
+            logger.info(f"TOOL: Tool call generated: {tool_call['id']}")
             return ai_message
             
         except Exception as e:
-            logger.error(f"❌ Error generating tool call: {str(e)}")
+            logger.error(f"Error generating tool call: {str(e)}")
             logger.error(traceback.format_exc())
             return None
     
@@ -295,7 +288,7 @@ class ModernGraphBuilder:
                 # Handle template variables
                 if value == "{{user_id}}":
                     resolved[key] = state["user_id"]
-                    logger.info(f"🔄 Resolved {key}: {{{{user_id}}}} -> {state['user_id']}")
+                    logger.debug(f"Resolved {key}: {{user_id}} -> {state['user_id']}")
                 
                 elif value.startswith("{{") and value.endswith("}}"):
                     # Extract variable name
@@ -305,9 +298,9 @@ class ModernGraphBuilder:
                     resolved_value = self._lookup_variable(var_name, state)
                     if resolved_value is not None:
                         resolved[key] = resolved_value
-                        logger.info(f"🔄 Resolved {key}: {value} -> {resolved_value}")
+                        logger.debug(f"Resolved {key}: {value} -> {resolved_value}")
                     else:
-                        logger.warning(f"⚠️ Could not resolve variable: {value}")
+                        logger.warning(f"Could not resolve variable: {value}")
                         resolved[key] = value  # Keep original if can't resolve
                 else:
                     # Partial template resolution (e.g., "Hello {{name}}")
@@ -315,7 +308,7 @@ class ModernGraphBuilder:
                     if "{{user_id}}" in value:
                         resolved_value = value.replace("{{user_id}}", state["user_id"])
                     resolved[key] = resolved_value
-                    logger.info(f"🔄 Partial resolution {key}: {value} -> {resolved_value}")
+                    logger.debug(f"Partial resolution {key}: {value} -> {resolved_value}")
             else:
                 # No template variables, use as-is
                 resolved[key] = value
@@ -323,16 +316,16 @@ class ModernGraphBuilder:
         # FIXED: Ensure required parameters have defaults
         if "user_id" not in resolved and "user_id" in parameters:
             resolved["user_id"] = state["user_id"]
-            logger.info(f"🔄 Added missing user_id: {state['user_id']}")
+            logger.debug(f"Added missing user_id: {state['user_id']}")
         
         # FIXED: Add default email parameters if missing for send_email_tool
         if "to" in resolved and "subject" not in resolved:
             resolved["subject"] = "Thank you for your support"
-            logger.info("🔄 Added default subject for email")
+            logger.debug("Added default subject for email")
         
         if "to" in resolved and "body" not in resolved:
             resolved["body"] = "Thank you for your continued support and assistance."
-            logger.info("🔄 Added default body for email")
+            logger.debug("Added default body for email")
         
         return resolved
     
@@ -378,14 +371,14 @@ class ModernGraphBuilder:
         }
         
         tool_name = action_to_tool.get(action, "read_recent_emails_tool")
-        logger.info(f"🔧 Mapped {action.value} -> {tool_name}")
+        logger.debug(f"Mapped {action.value} -> {tool_name}")
         return tool_name
     
     def _process_tool_results(self, state: WorkflowState, step: ExecutionStep, current_step: int) -> Dict[str, Any]:
         """
         FIXED: Process results from tool execution and create step result.
         """
-        logger.info(f"🔍 Processing tool results for step {current_step}")
+        logger.info(f"TOOL: Processing tool results for step {current_step}")
         
         try:
             # Look for ToolMessage in recent messages
@@ -399,7 +392,7 @@ class ModernGraphBuilder:
                     break
             
             if tool_result:
-                logger.info(f"✅ Found tool result: {str(tool_result)[:100]}...")
+                logger.info(f"TOOL: Found tool result: {str(tool_result)[:100]}...")
                 
                 # Create successful step result
                 step_result = StepResult(
@@ -425,16 +418,16 @@ class ModernGraphBuilder:
                     }
                 }
             else:
-                logger.warning(f"⚠️ No tool result found for step {current_step}")
+                logger.warning(f"No tool result found for step {current_step}")
                 return self._create_failed_step_result(current_step, step, "No tool result found")
                 
         except Exception as e:
-            logger.error(f"❌ Error processing tool results: {str(e)}")
+            logger.error(f"Error processing tool results: {str(e)}")
             return self._create_failed_step_result(current_step, step, str(e))
     
     def _create_failed_step_result(self, current_step: int, step: ExecutionStep, error: str) -> Dict[str, Any]:
         """Create a failed step result"""
-        logger.error(f"❌ Creating failed result for step {current_step}: {error}")
+        logger.error(f"Creating failed result for step {current_step}: {error}")
         
         failed_result = StepResult(
             step_index=current_step,
@@ -452,7 +445,7 @@ class ModernGraphBuilder:
         """Create workflow finalization node"""
         def finalize_workflow(state: WorkflowState) -> Dict[str, Any]:
             """Finalize completed workflow"""
-            logger.info("🎊 Finalizing workflow")
+            logger.info("WORKFLOW: Finalizing workflow")
             
             completed_steps = len([r for r in state["step_results"].values() 
                                  if r.status == "completed"])
@@ -464,7 +457,7 @@ class ModernGraphBuilder:
             return {
                 "status": final_status,
                 "progress_messages": [
-                    f"🎊 Workflow completed! {completed_steps} steps succeeded, {failed_steps} failed"
+                    f"Workflow completed! {completed_steps} steps succeeded, {failed_steps} failed"
                 ]
             }
         
@@ -480,26 +473,16 @@ class ModernGraphBuilder:
             current_step = state["current_step"]
             total_steps = len(state["plan"].steps)
             
-            # DEBUG LOGGING ADDED:
-            logger.info(f"🔍 DEBUG: State keys: {list(state.keys())}")
-            logger.info(f"🔍 DEBUG: Messages in state: {state.get('messages', 'MISSING!')}")
-            logger.info(f"🔍 DEBUG: Number of messages: {len(state.get('messages', []))}")
-            if state.get('messages'):
-                for i, msg in enumerate(state.get('messages', [])):
-                    logger.info(f"🔍 DEBUG: Message {i}: type={type(msg)}, content={str(msg)[:100]}")
-                    if hasattr(msg, 'tool_calls') and msg.tool_calls:
-                        logger.info(f"🔍 DEBUG: Message {i} has tool calls: {msg.tool_calls}")
-            
-            logger.info(f"🚦 Routing from step executor: step {current_step}/{total_steps}")
+            logger.debug(f"Routing from step executor: step {current_step}/{total_steps}")
             
             # Check for errors
             if state["status"] == "failed":
-                logger.error("❌ Workflow failed, ending execution")
+                logger.error("Workflow failed, ending execution")
                 return "error"
             
             # Check if workflow is complete
             if current_step > total_steps:
-                logger.info("🎉 Workflow complete, finalizing")
+                logger.info("Workflow complete, finalizing")
                 return "finalize"
             
             # Check if we need to execute tools
@@ -507,35 +490,35 @@ class ModernGraphBuilder:
             needs_tool_execution = current_execution.get("needs_tool_execution", False)
             tool_executed = current_execution.get("tool_executed", False)
             
-            logger.info(f"🔍 DEBUG: needs_tool_execution={needs_tool_execution}, tool_executed={tool_executed}")
+            logger.debug(f"needs_tool_execution={needs_tool_execution}, tool_executed={tool_executed}")
             
             if needs_tool_execution and not tool_executed:
-                logger.info(f"🔧 Step {current_step} needs tool execution")
+                logger.info(f"ROUTING: Step {current_step} needs tool execution")
                 return "execute_tools"
             
             # Check if current step is completed
             if current_step in state["step_results"]:
                 result = state["step_results"][current_step]
                 if result.status == "completed":
-                    logger.info(f"✅ Step {current_step} completed, moving to next")
+                    logger.info(f"ROUTING: Step {current_step} completed, moving to next")
                     return "next_step"
                 elif result.status == "failed":
-                    logger.warning(f"⚠️ Step {current_step} failed, moving to next")
+                    logger.warning(f"ROUTING: Step {current_step} failed, moving to next")
                     return "next_step"
             
             # Check if we just returned from tool execution
             messages = state.get("messages", [])
             if messages and isinstance(messages[-1], ToolMessage):
-                logger.info(f"🔄 Tool execution completed for step {current_step}")
+                logger.info(f"ROUTING: Tool execution completed for step {current_step}")
                 # Mark tool as executed so we process results
                 return "next_step"
             
             # Default: continue to next step
-            logger.info(f"➡️ Continuing to next step from {current_step}")
+            logger.debug(f"ROUTING: Continuing to next step from {current_step}")
             return "next_step"
             
         except Exception as e:
-            logger.error(f"❌ Error in routing logic: {str(e)}")
+            logger.error(f"Error in routing logic: {str(e)}")
             logger.error(traceback.format_exc())
             return "error"
     
@@ -545,7 +528,7 @@ class ModernGraphBuilder:
         
         Returns a compiled graph ready for streaming execution.
         """
-        logger.info("🔧 Compiling workflow with checkpointing")
+        logger.info("GRAPH: Compiling workflow with checkpointing")
         
         try:
             # Get checkpointer from state manager
@@ -554,11 +537,11 @@ class ModernGraphBuilder:
             # Compile with checkpointing
             compiled_graph = workflow.compile(checkpointer=checkpointer)
             
-            logger.info("✅ Workflow compiled successfully with persistence")
+            logger.info("GRAPH: Workflow compiled successfully with persistence")
             return compiled_graph
             
         except Exception as e:
-            logger.error(f"❌ Error compiling workflow: {str(e)}")
+            logger.error(f"Error compiling workflow: {str(e)}")
             logger.error(traceback.format_exc())
             raise
 
@@ -577,7 +560,7 @@ def create_workflow_graph(plan: ExecutionPlan, auth_manager, tools_registry: Dic
     Returns:
         Compiled LangGraph ready for streaming execution
     """
-    logger.info(f"🏭 Creating workflow graph for: {plan.intent}")
+    logger.info(f"GRAPH: Creating workflow graph for: {plan.intent}")
     
     try:
         # Create graph builder
@@ -589,11 +572,11 @@ def create_workflow_graph(plan: ExecutionPlan, auth_manager, tools_registry: Dic
         # Compile with checkpointing
         compiled_graph = builder.compile_workflow(workflow, state_manager)
         
-        logger.info("✅ Complete workflow graph created and compiled")
+        logger.info("GRAPH: Complete workflow graph created and compiled")
         return compiled_graph
         
     except Exception as e:
-        logger.error(f"❌ Error creating workflow graph: {str(e)}")
+        logger.error(f"Error creating workflow graph: {str(e)}")
         raise
 
 # Utility functions for workflow management

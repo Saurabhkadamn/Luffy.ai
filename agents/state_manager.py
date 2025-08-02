@@ -47,14 +47,14 @@ class StateManager:
         
         # Initialize checkpointer with FIXED implementation
         if use_memory:
-            logger.info(f"🗃️ Using MemorySaver for user: {user_id}")
+            logger.debug(f"STATE: Using MemorySaver for user: {user_id}")
             self.checkpointer = MemorySaver()
         else:
             # FIXED: Create SQLite database with proper v0.2+ approach
             db_path = Path("data") / "checkpoints" / f"user_{user_id}.db"
             db_path.parent.mkdir(parents=True, exist_ok=True)
             
-            logger.info(f"🗃️ Using SqliteSaver at: {db_path}")
+            logger.debug(f"STATE: Using SqliteSaver at: {db_path}")
             
             try:
                 # FIXED: Use direct constructor instead of context manager
@@ -64,20 +64,20 @@ class StateManager:
                 # FIXED: Setup database tables on first use
                 try:
                     self.checkpointer.setup()
-                    logger.info("✅ SQLite database setup completed")
+                    logger.debug("SQLite database setup completed")
                 except Exception as setup_error:
                     # Database might already exist, which is fine
                     logger.debug(f"Database setup note: {setup_error}")
                 
             except ImportError as e:
-                logger.error("❌ SQLite checkpointer not installed!")
+                logger.error("SQLite checkpointer not installed!")
                 logger.error("Run: pip install langgraph-checkpoint-sqlite")
                 raise ImportError(
                     "SQLite checkpointer requires: pip install langgraph-checkpoint-sqlite"
                 ) from e
             except Exception as e:
-                logger.error(f"❌ Failed to create SQLite checkpointer: {str(e)}")
-                logger.warning("🔄 Falling back to MemorySaver")
+                logger.error(f"Failed to create SQLite checkpointer: {str(e)}")
+                logger.warning("Falling back to MemorySaver")
                 self.checkpointer = MemorySaver()
         
         # Thread configuration for LangGraph
@@ -88,7 +88,7 @@ class StateManager:
             }
         }
         
-        logger.info(f"✅ StateManager initialized for user: {user_id}")
+        logger.debug(f"STATE: StateManager initialized for user: {user_id}")
     
     def create_workflow_state(self, plan: ExecutionPlan) -> WorkflowState:
         """
@@ -97,19 +97,18 @@ class StateManager:
         This creates the initial state that will be persisted
         by LangGraph checkpointing.
         """
-        logger.info(f"🔄 Creating new workflow state for plan: {plan.intent}")
+        logger.debug(f"STATE: Creating new workflow state for plan: {plan.intent}")
         
         try:
             # Use our helper function from plan_schema
             initial_state = create_initial_state(plan, self.user_id)
             
-            logger.info(f"✅ Workflow state created with {len(plan.steps)} steps")
-            logger.info(f"📋 Plan intent: {plan.intent}")
+            logger.debug(f"Workflow state created with {len(plan.steps)} steps")
             
             return initial_state
             
         except Exception as e:
-            logger.error(f"❌ Error creating workflow state: {str(e)}")
+            logger.error(f"Error creating workflow state: {str(e)}")
             raise
     
     def get_config(self) -> Dict[str, Any]:
@@ -131,14 +130,14 @@ class StateManager:
             checkpoint = self.checkpointer.get(self.config)
             
             if checkpoint and hasattr(checkpoint, 'channel_values') and checkpoint.channel_values:
-                logger.info(f"📊 Retrieved thread state for user: {self.user_id}")
+                logger.debug(f"STATE: Retrieved thread state for user: {self.user_id}")
                 return checkpoint.channel_values
             else:
-                logger.info(f"📭 No active workflow found for user: {self.user_id}")
+                logger.debug(f"STATE: No active workflow found for user: {self.user_id}")
                 return None
                 
         except Exception as e:
-            logger.error(f"❌ Error getting thread state: {str(e)}")
+            logger.error(f"Error getting thread state: {str(e)}")
             return None
     
     def get_workflow_progress(self) -> Dict[str, Any]:
@@ -148,7 +147,7 @@ class StateManager:
         Returns progress summary with completion status,
         step details, and recent messages.
         """
-        logger.info(f"📊 Getting workflow progress for user: {self.user_id}")
+        logger.debug(f"STATE: Getting workflow progress for user: {self.user_id}")
         
         try:
             current_state = self.get_thread_state()
@@ -163,11 +162,11 @@ class StateManager:
             # Use our helper function to get progress summary
             progress = get_progress_summary(current_state)
             
-            logger.info(f"📊 Progress: {progress['completed_steps']}/{progress['total_steps']} steps completed")
+            logger.debug(f"STATE: Progress: {progress['completed_steps']}/{progress['total_steps']} steps completed")
             return progress
             
         except Exception as e:
-            logger.error(f"❌ Error getting workflow progress: {str(e)}")
+            logger.error(f"Error getting workflow progress: {str(e)}")
             return {
                 "status": "error", 
                 "progress_percent": 0,
@@ -186,7 +185,7 @@ class StateManager:
             return messages[-limit:] if len(messages) > limit else messages
             
         except Exception as e:
-            logger.error(f"❌ Error getting recent messages: {str(e)}")
+            logger.error(f"Error getting recent messages: {str(e)}")
             return []
     
     def is_workflow_active(self) -> bool:
@@ -196,7 +195,7 @@ class StateManager:
             return (state is not None and 
                    state.get("status") in ["executing", "planning", "interrupted"])
         except Exception as e:
-            logger.error(f"❌ Error checking workflow status: {str(e)}")
+            logger.error(f"Error checking workflow status: {str(e)}")
             return False
     
     def get_workflow_summary(self) -> Optional[Dict[str, Any]]:
@@ -223,7 +222,7 @@ class StateManager:
             }
             
         except Exception as e:
-            logger.error(f"❌ Error getting workflow summary: {str(e)}")
+            logger.error(f"Error getting workflow summary: {str(e)}")
             return None
     
     def clear_workflow(self):
@@ -232,7 +231,7 @@ class StateManager:
         
         IMPROVED: Better cleanup implementation for SQLite
         """
-        logger.info(f"🗑️ Clearing workflow for user: {self.user_id}")
+        logger.info(f"STATE: Clearing workflow for user: {self.user_id}")
         
         try:
             # For MemorySaver, we can clear directly
@@ -240,16 +239,16 @@ class StateManager:
                 # Clear from memory
                 if hasattr(self.checkpointer, 'storage'):
                     self.checkpointer.storage.clear()
-                logger.info("✅ Memory workflow cleared")
+                logger.info("Memory workflow cleared")
             
             else:
                 # For SQLite, we could delete the specific thread
                 # But for now, just log the intent - the workflow will be 
                 # effectively cleared when a new one starts
-                logger.info("✅ Workflow clear requested - will be cleared on next workflow")
+                logger.info("Workflow clear requested - will be cleared on next workflow")
             
         except Exception as e:
-            logger.error(f"❌ Error clearing workflow: {str(e)}")
+            logger.error(f"Error clearing workflow: {str(e)}")
     
     def get_step_details(self, step_index: int) -> Optional[Dict[str, Any]]:
         """Get detailed information about a specific step"""
@@ -274,7 +273,7 @@ class StateManager:
             }
             
         except Exception as e:
-            logger.error(f"❌ Error getting step details: {str(e)}")
+            logger.error(f"Error getting step details: {str(e)}")
             return None
     
     def get_final_results(self) -> Dict[str, Any]:
@@ -284,17 +283,17 @@ class StateManager:
         This formats the completed workflow into a user-friendly
         summary with key accomplishments and outputs.
         """
-        logger.info(f"📊 Getting final results for user: {self.user_id}")
+        logger.debug(f"STATE: Getting final results for user: {self.user_id}")
         
         try:
             state = self.get_thread_state()
             
             if not state:
-                logger.warning("⚠️ No workflow state found for final results")
+                logger.warning("No workflow state found for final results")
                 return {"error": "No workflow found"}
             
             if state["status"] not in ["completed", "failed"]:
-                logger.warning(f"⚠️ Workflow not finished yet, status: {state['status']}")
+                logger.warning(f"Workflow not finished yet, status: {state['status']}")
                 return {"error": "Workflow not completed", "status": state["status"]}
             
             # Build comprehensive results
@@ -341,11 +340,11 @@ class StateManager:
             results["step_summaries"] = step_summaries
             results["key_outputs"] = key_outputs
             
-            logger.info(f"✅ Final results compiled: {results['completed_steps']} completed, {results['failed_steps']} failed")
+            logger.debug(f"STATE: Final results compiled: {results['completed_steps']} completed, {results['failed_steps']} failed")
             return results
             
         except Exception as e:
-            logger.error(f"❌ Error getting final results: {str(e)}")
+            logger.error(f"Error getting final results: {str(e)}")
             return {"error": str(e), "status": "error"}
     
     def _calculate_execution_time(self, state: WorkflowState) -> str:
@@ -367,7 +366,7 @@ class StateManager:
                 return "Unknown"
                 
         except Exception as e:
-            logger.error(f"❌ Error calculating execution time: {str(e)}")
+            logger.error(f"Error calculating execution time: {str(e)}")
             return "Unknown"
     
     # ADDED: Database health and cleanup methods
@@ -399,7 +398,7 @@ class StateManager:
             return info
             
         except Exception as e:
-            logger.error(f"❌ Error getting database info: {str(e)}")
+            logger.error(f"Error getting database info: {str(e)}")
             return {"type": "sqlite", "error": str(e)}
     
     def close_connection(self):
@@ -413,9 +412,9 @@ class StateManager:
                 # Access the underlying connection and close it
                 if hasattr(self.checkpointer, 'conn'):
                     self.checkpointer.conn.close()
-                    logger.info(f"✅ Closed SQLite connection for user: {self.user_id}")
+                    logger.debug(f"STATE: Closed SQLite connection for user: {self.user_id}")
         except Exception as e:
-            logger.error(f"❌ Error closing SQLite connection: {str(e)}")
+            logger.error(f"Error closing SQLite connection: {str(e)}")
     
     def __del__(self):
         """Cleanup when object is destroyed"""
@@ -448,7 +447,7 @@ def cleanup_old_checkpoints(days_old: int = 7) -> Dict[str, Any]:
     Returns:
         Cleanup results with statistics
     """
-    logger.info(f"🧹 Cleaning up checkpoints older than {days_old} days")
+    logger.info(f"STATE: Cleaning up checkpoints older than {days_old} days")
     
     cleanup_results = {
         "files_removed": 0,
@@ -460,7 +459,7 @@ def cleanup_old_checkpoints(days_old: int = 7) -> Dict[str, Any]:
     try:
         checkpoint_dir = Path("data") / "checkpoints"
         if not checkpoint_dir.exists():
-            logger.info("📂 No checkpoint directory found")
+            logger.info("No checkpoint directory found")
             return cleanup_results
         
         cutoff_time = datetime.now().timestamp() - (days_old * 24 * 60 * 60)
@@ -475,12 +474,12 @@ def cleanup_old_checkpoints(days_old: int = 7) -> Dict[str, Any]:
                     cleanup_results["files_removed"] += 1
                     cleanup_results["space_freed_bytes"] += file_size
                     
-                    logger.info(f"🗑️ Removed old checkpoint: {db_file.name} ({file_size} bytes)")
+                    logger.debug(f"Removed old checkpoint: {db_file.name} ({file_size} bytes)")
                     
             except Exception as file_error:
                 error_msg = f"Error removing {db_file.name}: {str(file_error)}"
                 cleanup_results["errors"].append(error_msg)
-                logger.error(f"❌ {error_msg}")
+                logger.error(error_msg)
         
         # Convert bytes to readable format
         space_freed = cleanup_results["space_freed_bytes"]
@@ -497,11 +496,11 @@ def cleanup_old_checkpoints(days_old: int = 7) -> Dict[str, Any]:
         if cleanup_results["errors"]:
             cleanup_results["success"] = False
         
-        logger.info(f"✅ Cleanup completed: {cleanup_results['files_removed']} files removed, {cleanup_results['space_freed_readable']} freed")
+        logger.info(f"STATE: Cleanup completed: {cleanup_results['files_removed']} files removed, {cleanup_results['space_freed_readable']} freed")
         return cleanup_results
         
     except Exception as e:
-        logger.error(f"❌ Error during checkpoint cleanup: {str(e)}")
+        logger.error(f"Error during checkpoint cleanup: {str(e)}")
         cleanup_results["success"] = False
         cleanup_results["errors"].append(str(e))
         return cleanup_results
@@ -525,7 +524,7 @@ def validate_sqlite_installation() -> Dict[str, Any]:
         # Test import
         from langgraph.checkpoint.sqlite import SqliteSaver
         validation["import_success"] = True
-        logger.info("✅ SQLite checkpointer import successful")
+        logger.debug("SQLite checkpointer import successful")
         
         # Test basic functionality
         conn = sqlite3.connect(":memory:", check_same_thread=False)
@@ -534,19 +533,19 @@ def validate_sqlite_installation() -> Dict[str, Any]:
         validation["test_success"] = True
         validation["sqlite_available"] = True
         conn.close()
-        logger.info("✅ SQLite checkpointer test successful")
+        logger.debug("SQLite checkpointer test successful")
         
     except ImportError as e:
         validation["recommendations"].append(
             "Install SQLite checkpointer: pip install langgraph-checkpoint-sqlite"
         )
-        logger.error(f"❌ SQLite checkpointer not installed: {str(e)}")
+        logger.error(f"SQLite checkpointer not installed: {str(e)}")
         
     except Exception as e:
         validation["recommendations"].append(
             "Check SQLite installation and permissions"
         )
-        logger.error(f"❌ SQLite checkpointer test failed: {str(e)}")
+        logger.error(f"SQLite checkpointer test failed: {str(e)}")
     
     return validation
 
@@ -604,11 +603,11 @@ def get_state_manager_health() -> Dict[str, Any]:
             health["components"]["memory_fallback"] = f"error: {str(e)}"
             health["status"] = "degraded"
         
-        logger.info(f"🏥 State manager health check: {health['status']}")
+        logger.debug(f"STATE: State manager health check: {health['status']}")
         return health
         
     except Exception as e:
-        logger.error(f"❌ Health check failed: {str(e)}")
+        logger.error(f"Health check failed: {str(e)}")
         return {
             "status": "error",
             "error": str(e),

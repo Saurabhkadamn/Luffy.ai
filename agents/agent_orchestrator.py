@@ -15,7 +15,6 @@ from agents.plan_schema import WorkflowState, create_initial_state, get_progress
 from utils.parameter_mapper import ParameterMapper
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 class ModernAgentOrchestrator:
@@ -30,27 +29,27 @@ class ModernAgentOrchestrator:
     """
     
     def __init__(self, auth_manager):
-        logger.info("🚀 Initializing ModernAgentOrchestrator")
+        logger.info("ORCHESTRATOR: Initializing")
         
         try:
             self.auth_manager = auth_manager
             
-            logger.info("🤖 Creating streamlined LLM planner")
+            logger.debug("Creating streamlined LLM planner")
             self.planner = create_llm_planner()
-            logger.info("✅ LLM planner created")
+            logger.debug("LLM planner created")
             
-            logger.info("🔧 Creating tools registry")
+            logger.debug("Creating tools registry")
             self.tools_registry = create_tools_registry(auth_manager)
-            logger.info("✅ Tools registry created")
+            logger.debug("Tools registry created")
             
-            logger.info("📅 Creating parameter mapper for date context")
+            logger.debug("Creating parameter mapper for date context")
             self.parameter_mapper = ParameterMapper()
-            logger.info("✅ Parameter mapper created")
+            logger.debug("Parameter mapper created")
             
-            logger.info("✅ ModernAgentOrchestrator initialization complete")
+            logger.info("ORCHESTRATOR: Initialization complete")
             
         except Exception as e:
-            logger.error(f"❌ Failed to initialize ModernAgentOrchestrator: {str(e)}")
+            logger.error(f"Failed to initialize ModernAgentOrchestrator: {str(e)}")
             logger.error(traceback.format_exc())
             raise
     
@@ -61,99 +60,99 @@ class ModernAgentOrchestrator:
         This is the main entry point that provides the step-by-step progress
         display that users see in the chat interface.
         """
-        logger.info(f"🎯 Starting request processing for user: {user_id}")
-        logger.info(f"📝 User request: {user_request}")
+        logger.info(f"ORCHESTRATOR: Starting request processing for user: {user_id}")
+        logger.info(f"REQUEST: {user_request}")
         
         try:
             # === PHASE 1: PLANNING ===
-            logger.info("🧠 Phase 1: Creating execution plan")
-            yield "🧠 **Planning your request...**"
+            logger.info("PHASE 1: Creating execution plan")
+            yield "Planning your request..."
             
             # Get user context with date information
-            logger.info("📊 Getting user context")
+            logger.debug("Getting user context")
             user_context = self._get_user_context(user_id)
-            logger.info(f"✅ User context retrieved: {list(user_context.keys())}")
+            logger.debug(f"User context retrieved: {list(user_context.keys())}")
             
             # Create execution plan
-            logger.info("🤖 Calling LLM planner")
+            logger.debug("Calling LLM planner")
             plan = self.planner.create_plan(user_request, user_context)
-            logger.info(f"✅ Plan created: {plan.intent}")
-            logger.info(f"📋 Plan has {len(plan.steps)} steps")
+            logger.info(f"PLAN CREATED: {plan.intent}")
+            logger.info(f"STEPS: {len(plan.steps)} steps to execute")
             
             # Show plan summary to user
-            yield f"✅ **Plan created**: {plan.intent}"
-            yield f"📋 **Steps to execute**: {len(plan.steps)}"
+            yield f"Plan created: {plan.intent}"
+            yield f"Steps to execute: {len(plan.steps)}"
             yield ""
             
             # Show step breakdown
             for i, step in enumerate(plan.steps, 1):
-                logger.info(f"Step {i}: {step.description}")
-                yield f"   **{i}.** {step.description}"
+                logger.debug(f"Step {i}: {step.description}")
+                yield f"   {i}. {step.description}"
             
             yield ""
             
             # === PHASE 2: WORKFLOW SETUP ===
-            logger.info("🔧 Phase 2: Setting up workflow execution")
-            yield "🚀 **Starting execution...**"
+            logger.info("PHASE 2: Setting up workflow execution")
+            yield "Starting execution..."
             
             # Initialize state manager with checkpointing
-            logger.info("🗃️ Initializing state manager")
+            logger.debug("Initializing state manager")
             state_manager = get_user_state_manager(user_id, use_memory=False)  # Use SQLite
-            logger.info("✅ State manager initialized")
+            logger.debug("State manager initialized")
             
             # Create initial workflow state
-            logger.info("🔄 Creating initial workflow state")
+            logger.debug("Creating initial workflow state")
             initial_state = create_initial_state(plan, user_id)
-            logger.info(f"✅ Initial state created: {initial_state['status']}")
+            logger.debug(f"Initial state created: {initial_state['status']}")
             
             # Build dynamic workflow graph
-            logger.info("🏗️ Building workflow graph")
+            logger.debug("Building workflow graph")
             tools_by_category = self.tools_registry.tools_by_category
             compiled_graph = create_workflow_graph(plan, self.auth_manager, tools_by_category, state_manager)
-            logger.info("✅ Workflow graph built and compiled")
+            logger.debug("Workflow graph built and compiled")
             
-            yield "✅ **Workflow ready** - Starting execution..."
+            yield "Workflow ready - Starting execution..."
             yield ""
             
             # === PHASE 3: REAL STREAMING EXECUTION ===
-            logger.info("⚡ Phase 3: Real LangGraph streaming execution")
+            logger.info("PHASE 3: Real LangGraph streaming execution")
             
             # Get state manager config for thread management
             config = state_manager.get_config()
-            logger.info(f"📊 Using config: {config}")
+            logger.debug(f"Using config: {config}")
             
             # Execute workflow with REAL LangGraph streaming
-            logger.info("🚀 Starting real LangGraph streaming execution")
+            logger.info("WORKFLOW: Starting real LangGraph streaming execution")
             for progress_update in self._execute_streaming_workflow(compiled_graph, initial_state, config, state_manager):
                 yield progress_update
             
             # === PHASE 4: FINAL SUMMARY ===
-            logger.info("📝 Phase 4: Generating final summary")
+            logger.info("PHASE 4: Generating final summary")
             yield ""
-            yield "📝 **Generating summary...**"
+            yield "Generating summary..."
             
             # Get final results from state manager
-            logger.info("📊 Getting final workflow results")
+            logger.debug("Getting final workflow results")
             final_results = state_manager.get_final_results()
-            logger.info(f"✅ Final results retrieved: {len(final_results)} items")
+            logger.debug(f"Final results retrieved: {len(final_results)} items")
             
             # Generate user-friendly summary
-            logger.info("✍️ Generating final response")
+            logger.debug("Generating final response")
             final_response = self._generate_claude_style_summary(final_results, plan)
-            logger.info("✅ Final response generated")
+            logger.debug("Final response generated")
             
             yield ""
-            yield "✅ **Completed!**"
+            yield "Completed!"
             yield ""
             yield final_response
             
-            logger.info("🎉 Request processing completed successfully")
+            logger.info("ORCHESTRATOR: Request processing completed successfully")
             
         except Exception as e:
-            logger.error(f"❌ Error in process_user_request: {str(e)}")
+            logger.error(f"Error in process_user_request: {str(e)}")
             logger.error(traceback.format_exc())
             yield ""
-            yield f"❌ **Error**: {str(e)}"
+            yield f"Error: {str(e)}"
             yield ""
             yield "Please try rephrasing your request or check your Google account connection."
     
@@ -165,24 +164,23 @@ class ModernAgentOrchestrator:
         This provides the Claude-style step-by-step progress display by
         streaming actual LangGraph execution updates.
         """
-        logger.info("🔄 Starting real LangGraph streaming execution")
+        logger.info("WORKFLOW: Starting real LangGraph streaming execution")
         
         try:
             step_count = 0
             last_completed_step = 0
             
             # Stream workflow execution with updates mode
-            logger.info("⚡ Calling graph.stream() with updates mode")
+            logger.debug("Calling graph.stream() with updates mode")
             for chunk in compiled_graph.stream(initial_state, config=config, stream_mode="updates"):
                 step_count += 1
-                logger.info(f"📦 Received chunk {step_count}: {type(chunk)}")
-                logger.debug(f"📦 Chunk content: {chunk}")
+                logger.debug(f"Received chunk {step_count}: {type(chunk)}")
                 
                 # Parse the streaming update
                 progress_update = self._parse_streaming_chunk(chunk, last_completed_step, state_manager)
                 
                 if progress_update:
-                    logger.info(f"📢 Yielding progress: {progress_update}")
+                    logger.debug(f"Yielding progress: {progress_update}")
                     yield progress_update
                     
                     # Track completed steps
@@ -196,12 +194,12 @@ class ModernAgentOrchestrator:
                         except:
                             pass  # Continue even if step parsing fails
             
-            logger.info(f"✅ Streaming execution completed after {step_count} chunks")
+            logger.info(f"WORKFLOW: Streaming execution completed after {step_count} chunks")
             
         except Exception as e:
-            logger.error(f"❌ Error in streaming execution: {str(e)}")
+            logger.error(f"Error in streaming execution: {str(e)}")
             logger.error(traceback.format_exc())
-            yield f"❌ **Execution Error**: {str(e)}"
+            yield f"Execution Error: {str(e)}"
     
     def _parse_streaming_chunk(self, chunk: Any, last_completed_step: int, state_manager) -> Optional[str]:
         """
@@ -211,7 +209,7 @@ class ModernAgentOrchestrator:
         """
         try:
             # Log chunk structure for debugging
-            logger.debug(f"🔍 Parsing chunk type: {type(chunk)}")
+            logger.debug(f"Parsing chunk type: {type(chunk)}")
             
             # Handle different chunk formats from LangGraph
             if isinstance(chunk, dict):
@@ -238,7 +236,7 @@ class ModernAgentOrchestrator:
             return None
             
         except Exception as e:
-            logger.error(f"❌ Error parsing streaming chunk: {str(e)}")
+            logger.error(f"Error parsing streaming chunk: {str(e)}")
             return None
     
     def _format_step_progress(self, step_data: Dict[str, Any], last_completed_step: int) -> Optional[str]:
@@ -247,7 +245,7 @@ class ModernAgentOrchestrator:
             if "current_step" in step_data:
                 current_step = step_data["current_step"]
                 if current_step > last_completed_step:
-                    return f"🔄 **Step {current_step}**: Starting execution..."
+                    return f"Step {current_step}: Starting execution..."
             
             if "progress_messages" in step_data:
                 messages = step_data["progress_messages"]
@@ -265,7 +263,7 @@ class ModernAgentOrchestrator:
         try:
             # Look for tool execution indicators
             if "messages" in str(tool_data):
-                return "🔧 **Executing tools**..."
+                return "Executing tools..."
             
             return None
             
@@ -292,17 +290,17 @@ class ModernAgentOrchestrator:
     
     def _get_user_context(self, user_id: str) -> Dict[str, Any]:
         """Get user context for planning with date context"""
-        logger.info(f"🔍 Getting user context for user: {user_id}")
+        logger.debug(f"Getting user context for user: {user_id}")
         
         try:
             # Get user info from auth manager
             user_info = self.auth_manager.get_user_info(user_id)
-            logger.info(f"✅ User info retrieved: {user_info is not None}")
+            logger.debug(f"User info retrieved: {user_info is not None}")
             
             # Get current date context
-            logger.info("📅 Getting current date context")
+            logger.debug("Getting current date context")
             date_context = self.parameter_mapper.get_current_date_context()
-            logger.info(f"✅ Date context retrieved: {date_context['current_date']}")
+            logger.debug(f"Date context retrieved: {date_context['current_date']}")
             
             # Build context
             context = {
@@ -322,25 +320,25 @@ class ModernAgentOrchestrator:
                 })
             
             # Check available services
-            logger.info("🔧 Checking available services")
+            logger.debug("Checking available services")
             
             if self.auth_manager.get_authenticated_client('gmail', 'v1', user_id):
                 context["authenticated_services"].append("gmail")
-                logger.info("✅ Gmail service available")
+                logger.debug("Gmail service available")
             
             if self.auth_manager.get_authenticated_client('calendar', 'v3', user_id):
                 context["authenticated_services"].append("calendar")
-                logger.info("✅ Calendar service available")
+                logger.debug("Calendar service available")
             
             if self.auth_manager.get_authenticated_client('drive', 'v3', user_id):
                 context["authenticated_services"].append("drive")
-                logger.info("✅ Drive service available")
+                logger.debug("Drive service available")
             
-            logger.info(f"✅ User context complete. Services: {context['authenticated_services']}")
+            logger.debug(f"User context complete. Services: {context['authenticated_services']}")
             return context
             
         except Exception as e:
-            logger.error(f"❌ Error getting user context: {str(e)}")
+            logger.error(f"Error getting user context: {str(e)}")
             return {
                 "user_id": user_id,
                 "authenticated_services": [],
@@ -354,11 +352,11 @@ class ModernAgentOrchestrator:
         
         Creates a comprehensive summary similar to Claude's research feature.
         """
-        logger.info("✍️ Generating Claude-style final summary")
+        logger.debug("Generating Claude-style final summary")
         
         try:
             if not final_results or "error" in final_results:
-                logger.warning("⚠️ No valid final results for summary")
+                logger.warning("No valid final results for summary")
                 return "I encountered an issue completing your request. Please try again."
             
             # Start building the summary
@@ -375,7 +373,7 @@ class ModernAgentOrchestrator:
             failed_count = final_results.get('failed_steps', 0)
             
             if completed_count > 0:
-                summary_parts.append("### ✅ What I accomplished:")
+                summary_parts.append("### What I accomplished:")
                 summary_parts.append("")
                 
                 for step_summary in step_summaries:
@@ -395,31 +393,31 @@ class ModernAgentOrchestrator:
             if 'meeting_link' in key_outputs or 'meeting_link' in shared_context:
                 meet_link = key_outputs.get('meeting_link') or shared_context.get('meeting_link')
                 if meet_link:
-                    important_details.append(f"🎥 **Google Meet**: {meet_link}")
+                    important_details.append(f"**Google Meet**: {meet_link}")
             
             if 'message_id' in key_outputs:
-                important_details.append("📧 **Email sent successfully**")
+                important_details.append("**Email sent successfully**")
             
             if 'event_id' in key_outputs:
-                important_details.append("📅 **Calendar event created**")
+                important_details.append("**Calendar event created**")
             
             if 'file_id' in key_outputs:
-                important_details.append("📁 **File processed in Drive**")
+                important_details.append("**File processed in Drive**")
             
             # Check for contact discoveries
             if 'discovered_contacts' in shared_context:
                 contacts = shared_context['discovered_contacts']
                 if contacts and len(contacts) > 0:
-                    important_details.append(f"👥 **Found {len(contacts)} team member(s)**")
+                    important_details.append(f"**Found {len(contacts)} team member(s)**")
             
             # Check for meeting attendees
             if 'meeting_attendees' in shared_context:
                 attendees = shared_context['meeting_attendees']
                 if attendees and len(attendees) > 0:
-                    important_details.append(f"📧 **Notified {len(attendees)} attendee(s)**")
+                    important_details.append(f"**Notified {len(attendees)} attendee(s)**")
             
             if important_details:
-                summary_parts.append("### 🎯 Key details:")
+                summary_parts.append("### Key details:")
                 summary_parts.append("")
                 summary_parts.extend(important_details)
                 summary_parts.append("")
@@ -428,7 +426,7 @@ class ModernAgentOrchestrator:
             execution_time = final_results.get('execution_time', 'Unknown')
             total_steps = final_results.get('total_steps', len(step_summaries))
             
-            summary_parts.append("### 📊 Execution summary:")
+            summary_parts.append("### Execution summary:")
             summary_parts.append("")
             summary_parts.append(f"• **Steps completed**: {completed_count}/{total_steps}")
             summary_parts.append(f"• **Execution time**: {execution_time}")
@@ -439,7 +437,7 @@ class ModernAgentOrchestrator:
             # Handle failures
             if failed_count > 0:
                 summary_parts.append("")
-                summary_parts.append("### ⚠️ Issues encountered:")
+                summary_parts.append("### Issues encountered:")
                 summary_parts.append("")
                 
                 for step_summary in step_summaries:
@@ -449,37 +447,37 @@ class ModernAgentOrchestrator:
                         summary_parts.append(f"• **{desc}**: {error}")
             
             final_summary = "\n".join(summary_parts)
-            logger.info("✅ Claude-style summary generated successfully")
+            logger.debug("Claude-style summary generated successfully")
             return final_summary
             
         except Exception as e:
-            logger.error(f"❌ Error generating summary: {str(e)}")
+            logger.error(f"Error generating summary: {str(e)}")
             logger.error(traceback.format_exc())
             return f"Task completed, but encountered an error generating the summary: {str(e)}"
     
     def get_workflow_status(self, user_id: str) -> Dict[str, Any]:
         """Get current workflow status for UI"""
-        logger.info(f"📊 Getting workflow status for user: {user_id}")
+        logger.debug(f"Getting workflow status for user: {user_id}")
         
         try:
             state_manager = get_user_state_manager(user_id)
             status = state_manager.get_workflow_progress()
-            logger.info(f"✅ Workflow status retrieved: {status}")
+            logger.debug(f"Workflow status retrieved: {status}")
             return status
         except Exception as e:
-            logger.error(f"❌ Error getting workflow status: {str(e)}")
+            logger.error(f"Error getting workflow status: {str(e)}")
             return {"status": "error", "error": str(e)}
     
     def cancel_workflow(self, user_id: str):
         """Cancel current workflow"""
-        logger.info(f"🛑 Cancelling workflow for user: {user_id}")
+        logger.info(f"Cancelling workflow for user: {user_id}")
         
         try:
             state_manager = get_user_state_manager(user_id)
             state_manager.clear_workflow()
-            logger.info("✅ Workflow cancelled successfully")
+            logger.info("Workflow cancelled successfully")
         except Exception as e:
-            logger.error(f"❌ Error cancelling workflow: {str(e)}")
+            logger.error(f"Error cancelling workflow: {str(e)}")
             raise
 
 # Factory function for easy integration
@@ -493,7 +491,7 @@ def create_agent_orchestrator(auth_manager) -> ModernAgentOrchestrator:
     Returns:
         Configured ModernAgentOrchestrator instance
     """
-    logger.info("🏭 Creating ModernAgentOrchestrator instance")
+    logger.debug("Creating ModernAgentOrchestrator instance")
     return ModernAgentOrchestrator(auth_manager)
 
 # Utility functions for monitoring and debugging
@@ -503,7 +501,7 @@ def get_orchestrator_health(auth_manager) -> Dict[str, Any]:
     
     Returns system status and component health.
     """
-    logger.info("🏥 Running orchestrator health check")
+    logger.debug("Running orchestrator health check")
     
     try:
         health = {
@@ -537,11 +535,11 @@ def get_orchestrator_health(auth_manager) -> Dict[str, Any]:
             health["components"]["auth_manager"] = f"error: {str(e)}"
             health["status"] = "degraded"
         
-        logger.info(f"✅ Health check completed: {health['status']}")
+        logger.debug(f"Health check completed: {health['status']}")
         return health
         
     except Exception as e:
-        logger.error(f"❌ Health check failed: {str(e)}")
+        logger.error(f"Health check failed: {str(e)}")
         return {
             "status": "error",
             "error": str(e),
@@ -550,6 +548,6 @@ def get_orchestrator_health(auth_manager) -> Dict[str, Any]:
 
 if __name__ == "__main__":
     # Example usage for testing
-    print("🚀 ModernAgentOrchestrator Test")
+    print("ORCHESTRATOR: ModernAgentOrchestrator Test")
     print("This module provides real streaming execution with Claude-style progress")
     print("Run with proper auth_manager for full functionality")

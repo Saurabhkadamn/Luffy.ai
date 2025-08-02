@@ -21,12 +21,11 @@ class StreamlinedLLMPlanner:
     """
     
     def __init__(self):
-        logger.info("🤖 Initializing StreamlinedLLMPlanner with aligned schemas")
+        logger.info("PLANNER: Initializing with aligned schemas")
         
         try:
             # Create LLM instance with optimized config
-            logger.info("🔧 Creating ChatNVIDIA instance for planning")
-            logger.info(f"🔑 Using API key: {'*' * 20}{settings.NVIDIA_API_KEY[-4:] if settings.NVIDIA_API_KEY else 'MISSING'}")
+            logger.debug("Creating ChatNVIDIA instance for planning")
             
             self.llm = ChatNVIDIA(
                 model="moonshotai/kimi-k2-instruct",
@@ -35,16 +34,15 @@ class StreamlinedLLMPlanner:
                 top_p=0.9,
                 max_tokens=4096,
             )
-            logger.info("✅ ChatNVIDIA instance created successfully")
+            logger.debug("ChatNVIDIA instance created successfully")
             
-            logger.info("📝 Building ALIGNED system prompt")
+            logger.debug("Building ALIGNED system prompt")
             self.system_prompt = self._build_aligned_system_prompt()
-            logger.info(f"✅ System prompt built (length: {len(self.system_prompt)} chars)")
             
-            logger.info("✅ StreamlinedLLMPlanner initialization complete")
+            logger.info("PLANNER: Initialization complete")
             
         except Exception as e:
-            logger.error(f"❌ Failed to initialize StreamlinedLLMPlanner: {str(e)}")
+            logger.error(f"Failed to initialize StreamlinedLLMPlanner: {str(e)}")
             logger.error(traceback.format_exc())
             raise
     
@@ -54,75 +52,67 @@ class StreamlinedLLMPlanner:
         
         Now generates parameters that exactly match tool Pydantic schemas.
         """
-        logger.info(f"📋 Creating plan for request: {user_request}")
-        logger.info(f"📊 User context: {user_context}")
+        logger.info(f"PLANNER: Creating plan for: {user_request}")
         
         try:
-            logger.info("✍️ Building planning prompt")
+            logger.debug("Building planning prompt")
             user_prompt = self._build_planning_prompt(user_request, user_context)
-            logger.info(f"✅ Planning prompt built (length: {len(user_prompt)} chars)")
             
-            logger.info("💬 Preparing LangChain messages")
+            logger.debug("Preparing LangChain messages")
             messages = [
                 SystemMessage(content=self.system_prompt),
                 HumanMessage(content=user_prompt)
             ]
-            logger.info("✅ Messages prepared for LLM")
             
-            logger.info("🚀 Invoking LLM for plan generation")
+            logger.info("PLANNER: Invoking LLM for plan generation")
             response = self.llm.invoke(messages)
-            logger.info("✅ LLM response received")
             
             # Extract content from LangChain response
             response_content = response.content if hasattr(response, 'content') else str(response)
-            logger.info(f"📄 Response content length: {len(response_content)} chars")
-            logger.info(f"📄 Response preview: {response_content[:200]}...")
+            logger.debug(f"Response content length: {len(response_content)} chars")
             
             # Clean and parse JSON response
-            logger.info("🧹 Cleaning and parsing JSON response")
+            logger.debug("Cleaning and parsing JSON response")
             cleaned_content = self._clean_json_response(response_content)
             plan_data = json.loads(cleaned_content)
-            logger.info("✅ JSON parsed successfully")
-            logger.info(f"📊 Plan data keys: {list(plan_data.keys())}")
+            logger.debug("JSON parsed successfully")
             
-            logger.info("🏗️ Converting to ExecutionPlan object")
+            logger.debug("Converting to ExecutionPlan object")
             execution_plan = self._parse_plan(plan_data)
-            logger.info(f"✅ ExecutionPlan created: {execution_plan.intent}")
-            logger.info(f"📋 Plan has {len(execution_plan.steps)} steps")
+            logger.info(f"PLANNER: Plan created with {len(execution_plan.steps)} steps - {execution_plan.intent}")
             
             # Validate plan
             validation_issues = self._validate_plan(execution_plan)
             if validation_issues:
-                logger.warning(f"⚠️ Plan validation issues: {validation_issues}")
+                logger.warning(f"Plan validation issues: {validation_issues}")
                 # Continue anyway - basic validation only
             
             return execution_plan
             
         except json.JSONDecodeError as e:
-            logger.error(f"❌ JSON parsing error: {str(e)}")
-            logger.error(f"📄 Raw response: {response_content}")
+            logger.error(f"JSON parsing error: {str(e)}")
             
             # Try to extract JSON from response
             try:
-                logger.info("🔍 Attempting to extract JSON from response")
+                logger.debug("Attempting to extract JSON from response")
                 json_str = self._extract_json_from_text(response_content)
                 
                 if json_str:
-                    logger.info("🔍 Extracted JSON successfully")
+                    logger.debug("Extracted JSON successfully")
                     plan_data = json.loads(json_str)
                     execution_plan = self._parse_plan(plan_data)
-                    logger.info(f"✅ ExecutionPlan created from extracted JSON: {execution_plan.intent}")
+                    logger.info(f"PLANNER: Plan created from extracted JSON: {execution_plan.intent}")
                     return execution_plan
                 else:
-                    logger.error("❌ No valid JSON found in response")
+                    logger.error("No valid JSON found in response")
                     return self._create_fallback_plan(user_request, f"JSON parsing error: {str(e)}")
                     
             except Exception as extract_error:
-                logger.error(f"❌ JSON extraction also failed: {str(extract_error)}")
+                logger.error(f"JSON extraction also failed: {str(extract_error)}")
                 return self._create_fallback_plan(user_request, f"JSON parsing error: {str(e)}")
                 
         except Exception as e:
-            logger.error(f"❌ General error in create_plan: {str(e)}")
+            logger.error(f"General error in create_plan: {str(e)}")
             logger.error(traceback.format_exc())
             return self._create_fallback_plan(user_request, str(e))
     
@@ -133,7 +123,7 @@ class StreamlinedLLMPlanner:
         This eliminates the need for parameter mapping by ensuring LLM output
         exactly matches what tools expect.
         """
-        logger.info("📝 Building ALIGNED system prompt with exact tool schemas")
+        logger.debug("Building ALIGNED system prompt with exact tool schemas")
         
         prompt = """
 You are an AI workflow planner for a Google productivity assistant with Gmail, Calendar, and Drive integration.
@@ -238,12 +228,12 @@ CRITICAL ALIGNMENT RULES:
 
 RESPOND WITH ONLY THE JSON OBJECT ABOVE.
 """
-        logger.info("✅ ALIGNED system prompt built")
+        logger.debug("ALIGNED system prompt built")
         return prompt
     
     def _build_planning_prompt(self, user_request: str, user_context: Dict[str, Any]) -> str:
         """Build user prompt with context"""
-        logger.info("✍️ Building planning prompt with context")
+        logger.debug("Building planning prompt with context")
         
         # Build context string
         context_str = ""
@@ -289,7 +279,7 @@ PARAMETER ALIGNMENT CHECKLIST:
 
 RESPOND WITH ONLY THE JSON OBJECT:
 """
-        logger.info("✅ Planning prompt built")
+        logger.debug("Planning prompt built")
         return prompt
     
     def _clean_json_response(self, content: str) -> str:
@@ -328,15 +318,15 @@ RESPOND WITH ONLY THE JSON OBJECT:
     
     def _parse_plan(self, plan_data: Dict[str, Any]) -> ExecutionPlan:
         """Convert JSON plan to ExecutionPlan object"""
-        logger.info("🏗️ Parsing plan data to ExecutionPlan")
+        logger.debug("Parsing plan data to ExecutionPlan")
         
         try:
             steps = []
             step_data_list = plan_data.get("steps", [])
-            logger.info(f"📋 Processing {len(step_data_list)} steps")
+            logger.debug(f"Processing {len(step_data_list)} steps")
             
             for i, step_data in enumerate(step_data_list):
-                logger.info(f"🔄 Processing step {i+1}: {step_data.get('description', 'No description')}")
+                logger.debug(f"Processing step {i+1}: {step_data.get('description', 'No description')}")
                 
                 # Map action to our ActionType enum
                 action_name = step_data.get("action", "")
@@ -350,7 +340,7 @@ RESPOND WITH ONLY THE JSON OBJECT:
                 elif "drive" in tool_name:
                     tool_type = ToolType.DRIVE
                 else:
-                    logger.warning(f"⚠️ Unknown tool type: {tool_name}")
+                    logger.warning(f"Unknown tool type: {tool_name}")
                     tool_type = ToolType.GMAIL  # Default fallback
                 
                 # Map action name to ActionType
@@ -367,7 +357,7 @@ RESPOND WITH ONLY THE JSON OBJECT:
                 )
                 
                 steps.append(step)
-                logger.info(f"✅ Step {i+1} parsed: {step.tool.value} - {step.action.value}")
+                logger.debug(f"Step {i+1} parsed: {step.tool.value} - {step.action.value}")
             
             execution_plan = ExecutionPlan(
                 intent=plan_data.get("intent", "Execute user request"),
@@ -376,11 +366,11 @@ RESPOND WITH ONLY THE JSON OBJECT:
                 requires_confirmation=plan_data.get("requires_confirmation", False)
             )
             
-            logger.info(f"✅ ExecutionPlan created: {execution_plan.intent}")
+            logger.debug(f"ExecutionPlan created: {execution_plan.intent}")
             return execution_plan
             
         except Exception as e:
-            logger.error(f"❌ Error parsing plan: {str(e)}")
+            logger.error(f"Error parsing plan: {str(e)}")
             logger.error(traceback.format_exc())
             raise
     
@@ -443,7 +433,7 @@ RESPOND WITH ONLY THE JSON OBJECT:
     
     def _create_fallback_plan(self, user_request: str, error: str) -> ExecutionPlan:
         """Create simple fallback plan when planning fails"""
-        logger.warning(f"⚠️ Creating fallback plan due to error: {error}")
+        logger.warning(f"Creating fallback plan due to error: {error}")
         
         try:
             fallback_step = ExecutionStep(
@@ -463,11 +453,11 @@ RESPOND WITH ONLY THE JSON OBJECT:
                 requires_confirmation=False
             )
             
-            logger.info("✅ Fallback plan created")
+            logger.info("Fallback plan created")
             return fallback_plan
             
         except Exception as fallback_error:
-            logger.error(f"❌ Error creating fallback plan: {str(fallback_error)}")
+            logger.error(f"Error creating fallback plan: {str(fallback_error)}")
             raise
 
 # Factory function for easy integration
@@ -478,7 +468,7 @@ def create_llm_planner() -> StreamlinedLLMPlanner:
     Returns:
         Configured StreamlinedLLMPlanner instance with aligned schemas
     """
-    logger.info("🏭 Creating StreamlinedLLMPlanner instance")
+    logger.debug("Creating StreamlinedLLMPlanner instance")
     return StreamlinedLLMPlanner()
 
 # Utility functions
@@ -528,12 +518,12 @@ def validate_plan_structure(plan: ExecutionPlan) -> Dict[str, Any]:
 
 if __name__ == "__main__":
     # Example usage for testing
-    print("🤖 StreamlinedLLMPlanner Test")
+    print("PLANNER: StreamlinedLLMPlanner Test")
     print("FIXED: Parameter schemas now aligned with tool inputs")
     print("RESULT: No more parameter mapping needed!")
     
     try:
         planner = create_llm_planner()
-        print("✅ Planner created successfully")
+        print("Planner created successfully")
     except Exception as e:
-        print(f"❌ Planner creation failed: {e}")
+        print(f"Planner creation failed: {e}")
