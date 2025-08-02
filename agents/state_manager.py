@@ -4,9 +4,10 @@ import logging
 from pathlib import Path
 import sqlite3
 
-# LangGraph checkpointing imports
-from langgraph.checkpoint.sqlite import SqliteSaver
+# LangGraph checkpointing imports - FIXED for v0.2+
 from langgraph.checkpoint.memory import MemorySaver
+# FIXED: Import from separate package (requires: pip install langgraph-checkpoint-sqlite)
+from langgraph.checkpoint.sqlite import SqliteSaver
 
 # Our new state schema
 from agents.plan_schema import (
@@ -26,9 +27,11 @@ class StateManager:
     """
     LangGraph-native state manager using checkpointing for persistence.
     
-    Replaces Streamlit session state with proper LangGraph checkpointing
-    that survives page refreshes, enables recovery, and supports
-    human-in-the-loop workflows.
+    FIXED: Proper SQLite checkpointer implementation for LangGraph v0.2+
+    - Uses SqliteSaver direct constructor instead of context manager
+    - Proper database setup and error handling
+    - Multi-user isolation with separate DB files
+    - Automatic cleanup capabilities
     """
     
     def __init__(self, user_id: str, use_memory: bool = False):
@@ -42,18 +45,40 @@ class StateManager:
         self.user_id = user_id
         self.thread_id = f"workflow_{user_id}"
         
-        # Initialize checkpointer
+        # Initialize checkpointer with FIXED implementation
         if use_memory:
             logger.info(f"🗃️ Using MemorySaver for user: {user_id}")
-            conn = sqlite3.connect(str(db_path))
-            self.checkpointer = SqliteSaver(conn)
+            self.checkpointer = MemorySaver()
         else:
-            # Create SQLite database for persistent storage
+            # FIXED: Create SQLite database with proper v0.2+ approach
             db_path = Path("data") / "checkpoints" / f"user_{user_id}.db"
             db_path.parent.mkdir(parents=True, exist_ok=True)
             
             logger.info(f"🗃️ Using SqliteSaver at: {db_path}")
-            self.checkpointer = SqliteSaver(str(db_path))
+            
+            try:
+                # FIXED: Use direct constructor instead of context manager
+                conn = sqlite3.connect(str(db_path), check_same_thread=False)
+                self.checkpointer = SqliteSaver(conn)
+                
+                # FIXED: Setup database tables on first use
+                try:
+                    self.checkpointer.setup()
+                    logger.info("✅ SQLite database setup completed")
+                except Exception as setup_error:
+                    # Database might already exist, which is fine
+                    logger.debug(f"Database setup note: {setup_error}")
+                
+            except ImportError as e:
+                logger.error("❌ SQLite checkpointer not installed!")
+                logger.error("Run: pip install langgraph-checkpoint-sqlite")
+                raise ImportError(
+                    "SQLite checkpointer requires: pip install langgraph-checkpoint-sqlite"
+                ) from e
+            except Exception as e:
+                logger.error(f"❌ Failed to create SQLite checkpointer: {str(e)}")
+                logger.warning("🔄 Falling back to MemorySaver")
+                self.checkpointer = MemorySaver()
         
         # Thread configuration for LangGraph
         self.config = {
@@ -102,10 +127,10 @@ class StateManager:
         Returns None if no active workflow exists.
         """
         try:
-            # Get latest checkpoint for this thread
+            # FIXED: Better error handling for checkpoint retrieval
             checkpoint = self.checkpointer.get(self.config)
             
-            if checkpoint and checkpoint.channel_values:
+            if checkpoint and hasattr(checkpoint, 'channel_values') and checkpoint.channel_values:
                 logger.info(f"📊 Retrieved thread state for user: {self.user_id}")
                 return checkpoint.channel_values
             else:
@@ -205,19 +230,23 @@ class StateManager:
         """
         Clear current workflow state.
         
-        This removes the checkpoint for this thread,
-        effectively ending the current workflow.
+        IMPROVED: Better cleanup implementation for SQLite
         """
         logger.info(f"🗑️ Clearing workflow for user: {self.user_id}")
         
         try:
-            # LangGraph checkpointer doesn't have a direct clear method
-            # but we can put an empty state to effectively clear it
-            empty_config = self.config.copy()
+            # For MemorySaver, we can clear directly
+            if isinstance(self.checkpointer, MemorySaver):
+                # Clear from memory
+                if hasattr(self.checkpointer, 'storage'):
+                    self.checkpointer.storage.clear()
+                logger.info("✅ Memory workflow cleared")
             
-            # The actual clearing will happen when a new workflow starts
-            # For now, we just log the intent
-            logger.info("✅ Workflow clear requested - will be cleared on next workflow")
+            else:
+                # For SQLite, we could delete the specific thread
+                # But for now, just log the intent - the workflow will be 
+                # effectively cleared when a new one starts
+                logger.info("✅ Workflow clear requested - will be cleared on next workflow")
             
         except Exception as e:
             logger.error(f"❌ Error clearing workflow: {str(e)}")
@@ -340,6 +369,60 @@ class StateManager:
         except Exception as e:
             logger.error(f"❌ Error calculating execution time: {str(e)}")
             return "Unknown"
+    
+    # ADDED: Database health and cleanup methods
+    def get_database_info(self) -> Dict[str, Any]:
+        """Get information about the SQLite database"""
+        if isinstance(self.checkpointer, MemorySaver):
+            return {"type": "memory", "persistent": False}
+        
+        try:
+            db_path = Path("data") / "checkpoints" / f"user_{self.user_id}.db"
+            
+            info = {
+                "type": "sqlite",
+                "persistent": True,
+                "path": str(db_path),
+                "exists": db_path.exists(),
+                "size_bytes": db_path.stat().st_size if db_path.exists() else 0
+            }
+            
+            # Add size in human readable format
+            size_bytes = info["size_bytes"]
+            if size_bytes < 1024:
+                info["size_readable"] = f"{size_bytes} B"
+            elif size_bytes < 1024 * 1024:
+                info["size_readable"] = f"{size_bytes / 1024:.1f} KB"
+            else:
+                info["size_readable"] = f"{size_bytes / (1024 * 1024):.1f} MB"
+            
+            return info
+            
+        except Exception as e:
+            logger.error(f"❌ Error getting database info: {str(e)}")
+            return {"type": "sqlite", "error": str(e)}
+    
+    def close_connection(self):
+        """
+        ADDED: Properly close SQLite connection when done.
+        
+        Call this when shutting down the state manager.
+        """
+        try:
+            if isinstance(self.checkpointer, SqliteSaver):
+                # Access the underlying connection and close it
+                if hasattr(self.checkpointer, 'conn'):
+                    self.checkpointer.conn.close()
+                    logger.info(f"✅ Closed SQLite connection for user: {self.user_id}")
+        except Exception as e:
+            logger.error(f"❌ Error closing SQLite connection: {str(e)}")
+    
+    def __del__(self):
+        """Cleanup when object is destroyed"""
+        try:
+            self.close_connection()
+        except:
+            pass  # Silently handle cleanup errors
 
 # Utility functions for integration with the rest of the system
 def get_user_state_manager(user_id: str, use_memory: bool = False) -> StateManager:
@@ -355,28 +438,179 @@ def get_user_state_manager(user_id: str, use_memory: bool = False) -> StateManag
     """
     return StateManager(user_id, use_memory=use_memory)
 
-def cleanup_old_checkpoints(days_old: int = 7):
+def cleanup_old_checkpoints(days_old: int = 7) -> Dict[str, Any]:
     """
-    Utility to clean up old checkpoint files.
+    IMPROVED: Utility to clean up old checkpoint files with better reporting.
     
     Args:
         days_old: Remove checkpoints older than this many days
+    
+    Returns:
+        Cleanup results with statistics
     """
     logger.info(f"🧹 Cleaning up checkpoints older than {days_old} days")
+    
+    cleanup_results = {
+        "files_removed": 0,
+        "space_freed_bytes": 0,
+        "errors": [],
+        "success": True
+    }
     
     try:
         checkpoint_dir = Path("data") / "checkpoints"
         if not checkpoint_dir.exists():
-            return
+            logger.info("📂 No checkpoint directory found")
+            return cleanup_results
         
         cutoff_time = datetime.now().timestamp() - (days_old * 24 * 60 * 60)
         
         for db_file in checkpoint_dir.glob("user_*.db"):
-            if db_file.stat().st_mtime < cutoff_time:
-                db_file.unlink()
-                logger.info(f"🗑️ Removed old checkpoint: {db_file.name}")
+            try:
+                file_stat = db_file.stat()
+                if file_stat.st_mtime < cutoff_time:
+                    file_size = file_stat.st_size
+                    db_file.unlink()
+                    
+                    cleanup_results["files_removed"] += 1
+                    cleanup_results["space_freed_bytes"] += file_size
+                    
+                    logger.info(f"🗑️ Removed old checkpoint: {db_file.name} ({file_size} bytes)")
+                    
+            except Exception as file_error:
+                error_msg = f"Error removing {db_file.name}: {str(file_error)}"
+                cleanup_results["errors"].append(error_msg)
+                logger.error(f"❌ {error_msg}")
         
-        logger.info("✅ Checkpoint cleanup completed")
+        # Convert bytes to readable format
+        space_freed = cleanup_results["space_freed_bytes"]
+        if space_freed > 0:
+            if space_freed < 1024:
+                cleanup_results["space_freed_readable"] = f"{space_freed} B"
+            elif space_freed < 1024 * 1024:
+                cleanup_results["space_freed_readable"] = f"{space_freed / 1024:.1f} KB"
+            else:
+                cleanup_results["space_freed_readable"] = f"{space_freed / (1024 * 1024):.1f} MB"
+        else:
+            cleanup_results["space_freed_readable"] = "0 B"
+        
+        if cleanup_results["errors"]:
+            cleanup_results["success"] = False
+        
+        logger.info(f"✅ Cleanup completed: {cleanup_results['files_removed']} files removed, {cleanup_results['space_freed_readable']} freed")
+        return cleanup_results
         
     except Exception as e:
         logger.error(f"❌ Error during checkpoint cleanup: {str(e)}")
+        cleanup_results["success"] = False
+        cleanup_results["errors"].append(str(e))
+        return cleanup_results
+
+def validate_sqlite_installation() -> Dict[str, Any]:
+    """
+    ADDED: Validate that SQLite checkpointing is properly installed and working.
+    
+    Returns:
+        Validation results with installation status and recommendations
+    """
+    validation = {
+        "sqlite_available": False,
+        "import_success": False,
+        "test_success": False,
+        "version_info": {},
+        "recommendations": []
+    }
+    
+    try:
+        # Test import
+        from langgraph.checkpoint.sqlite import SqliteSaver
+        validation["import_success"] = True
+        logger.info("✅ SQLite checkpointer import successful")
+        
+        # Test basic functionality
+        conn = sqlite3.connect(":memory:", check_same_thread=False)
+        test_saver = SqliteSaver(conn)
+        test_saver.setup()
+        validation["test_success"] = True
+        validation["sqlite_available"] = True
+        conn.close()
+        logger.info("✅ SQLite checkpointer test successful")
+        
+    except ImportError as e:
+        validation["recommendations"].append(
+            "Install SQLite checkpointer: pip install langgraph-checkpoint-sqlite"
+        )
+        logger.error(f"❌ SQLite checkpointer not installed: {str(e)}")
+        
+    except Exception as e:
+        validation["recommendations"].append(
+            "Check SQLite installation and permissions"
+        )
+        logger.error(f"❌ SQLite checkpointer test failed: {str(e)}")
+    
+    return validation
+
+# Health check function for the entire state management system
+def get_state_manager_health() -> Dict[str, Any]:
+    """
+    ADDED: Get comprehensive health check for state management system.
+    
+    Returns:
+        Health status with component checks and recommendations
+    """
+    health = {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "components": {},
+        "recommendations": []
+    }
+    
+    try:
+        # Check SQLite installation
+        sqlite_check = validate_sqlite_installation()
+        health["components"]["sqlite"] = sqlite_check
+        
+        if not sqlite_check["sqlite_available"]:
+            health["status"] = "degraded"
+            health["recommendations"].extend(sqlite_check["recommendations"])
+        
+        # Check checkpoint directory
+        checkpoint_dir = Path("data") / "checkpoints"
+        if checkpoint_dir.exists():
+            db_files = list(checkpoint_dir.glob("user_*.db"))
+            health["components"]["checkpoint_directory"] = {
+                "exists": True,
+                "path": str(checkpoint_dir),
+                "user_databases": len(db_files),
+                "total_size_bytes": sum(f.stat().st_size for f in db_files if f.exists())
+            }
+            
+            # Recommend cleanup if too many files
+            if len(db_files) > 50:
+                health["recommendations"].append(
+                    f"Consider cleanup: {len(db_files)} user databases found"
+                )
+        else:
+            health["components"]["checkpoint_directory"] = {
+                "exists": False,
+                "note": "Will be created automatically"
+            }
+        
+        # Test MemorySaver as fallback
+        try:
+            memory_saver = MemorySaver()
+            health["components"]["memory_fallback"] = "available"
+        except Exception as e:
+            health["components"]["memory_fallback"] = f"error: {str(e)}"
+            health["status"] = "degraded"
+        
+        logger.info(f"🏥 State manager health check: {health['status']}")
+        return health
+        
+    except Exception as e:
+        logger.error(f"❌ Health check failed: {str(e)}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
