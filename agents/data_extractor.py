@@ -45,9 +45,10 @@ class DataExtractor:
                     remaining_steps: List[ExecutionStep], shared_context: Dict[str, Any]) -> Dict[str, Any]:
         """Extract useful data from step result for future steps with comprehensive logging"""
         
-        logger.info(f"🔍 Starting data extraction for step {step_result.step_index}")
-        logger.info(f"🔧 Tool: {step_result.tool.value}, Action: {step_result.action.value}")
-        logger.info(f"📊 Step status: {step_result.status}")
+        # ✅ FIXED: Access TypedDict fields with bracket notation
+        logger.info(f"🔍 Starting data extraction for step {step_result['step_index']}")
+        logger.info(f"🔧 Tool: {step_result['tool'].value}, Action: {step_result['action'].value}")
+        logger.info(f"📊 Step status: {step_result['status']}")
         logger.info(f"📋 Remaining steps count: {len(remaining_steps)}")
         
         try:
@@ -84,7 +85,7 @@ class DataExtractor:
             if 'context_updates' in extracted_data:
                 logger.info(f"📝 Context updates: {list(extracted_data['context_updates'].keys())}")
             
-            logger.info(f"✅ Data extraction completed successfully for step {step_result.step_index}")
+            logger.info(f"✅ Data extraction completed successfully for step {step_result['step_index']}")
             return extracted_data
             
         except json.JSONDecodeError as e:
@@ -169,22 +170,23 @@ IMPORTANT: Respond with valid JSON only. No additional text.
     def _build_extraction_prompt(self, step_result: StepResult, completed_step: ExecutionStep,
                                 remaining_steps: List[ExecutionStep], shared_context: Dict[str, Any]) -> str:
         
-        logger.info(f"✍️ Building extraction prompt for step {step_result.step_index}")
+        # ✅ FIXED: Access TypedDict fields with bracket notation
+        logger.info(f"✍️ Building extraction prompt for step {step_result['step_index']}")
         
         try:
             remaining_summary = []
             for step in remaining_steps:
-                remaining_summary.append(f"Step {step.step_index}: {step.tool.value} - {step.action.value}")
+                remaining_summary.append(f"Step {step['step_index']}: {step['tool'].value} - {step['action'].value}")
             
             logger.info(f"📋 Built summary of {len(remaining_summary)} remaining steps")
             
             prompt = f"""
 COMPLETED STEP:
-Step {step_result.step_index}: {step_result.tool.value} - {step_result.action.value}
-Description: {completed_step.description}
+Step {step_result['step_index']}: {step_result['tool'].value} - {step_result['action'].value}
+Description: {completed_step['description']}
 
 TOOL OUTPUT:
-{json.dumps(step_result.raw_output, indent=2)}
+{json.dumps(step_result['raw_output'], indent=2)}
 
 REMAINING WORKFLOW STEPS:
 {chr(10).join(remaining_summary) if remaining_summary else "None"}
@@ -208,8 +210,9 @@ Respond with JSON only.
     def _fallback_extraction(self, step_result: StepResult) -> Dict[str, Any]:
         """Simple fallback extraction when LLM fails with logging"""
         
-        logger.warning(f"⚠️ Using fallback extraction for step {step_result.step_index}")
-        logger.info(f"🔧 Tool: {step_result.tool.value}")
+        # ✅ FIXED: Access TypedDict fields with bracket notation
+        logger.warning(f"⚠️ Using fallback extraction for step {step_result['step_index']}")
+        logger.info(f"🔧 Tool: {step_result['tool'].value}")
         
         try:
             extracted = {
@@ -219,19 +222,19 @@ Respond with JSON only.
             }
             
             # Basic extraction based on tool type
-            if step_result.tool.value == "gmail_tool":
+            if step_result['tool'].value == "gmail_tool":
                 logger.info("📧 Processing Gmail tool fallback extraction")
-                if "data" in step_result.raw_output and "emails" in step_result.raw_output["data"]:
-                    emails = step_result.raw_output["data"]["emails"]
+                if "data" in step_result['raw_output'] and "emails" in step_result['raw_output']["data"]:
+                    emails = step_result['raw_output']["data"]["emails"]
                     if emails:
                         email_addresses = [email.get("from", "") for email in emails if email.get("from")]
                         extracted["extracted_data"]["email_addresses"] = email_addresses
                         logger.info(f"📧 Extracted {len(email_addresses)} email addresses")
             
-            elif step_result.tool.value == "calendar_tool":
+            elif step_result['tool'].value == "calendar_tool":
                 logger.info("📅 Processing Calendar tool fallback extraction")
-                if "data" in step_result.raw_output:
-                    data = step_result.raw_output["data"]
+                if "data" in step_result['raw_output']:
+                    data = step_result['raw_output']["data"]
                     if "meet_link" in data:
                         extracted["extracted_data"]["meeting_link"] = data["meet_link"]
                         logger.info("🔗 Extracted meeting link")
@@ -239,10 +242,10 @@ Respond with JSON only.
                         extracted["extracted_data"]["event_id"] = data["event_id"]
                         logger.info("📅 Extracted event ID")
             
-            elif step_result.tool.value == "drive_tool":
+            elif step_result['tool'].value == "drive_tool":
                 logger.info("📁 Processing Drive tool fallback extraction")
-                if "data" in step_result.raw_output:
-                    data = step_result.raw_output["data"]
+                if "data" in step_result['raw_output']:
+                    data = step_result['raw_output']["data"]
                     if "file_id" in data:
                         extracted["extracted_data"]["file_id"] = data["file_id"]
                         logger.info("📁 Extracted file ID")
@@ -250,7 +253,7 @@ Respond with JSON only.
                         extracted["extracted_data"]["share_link"] = data["web_view_link"]
                         logger.info("🔗 Extracted share link")
             
-            logger.info(f"✅ Fallback extraction completed for step {step_result.step_index}")
+            logger.info(f"✅ Fallback extraction completed for step {step_result['step_index']}")
             logger.info(f"📊 Fallback extracted data: {list(extracted['extracted_data'].keys())}")
             
             return extracted

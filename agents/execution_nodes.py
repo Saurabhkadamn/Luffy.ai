@@ -20,7 +20,7 @@ class ExecutionNode:
     
     def execute(self, step_index: int, tool: ToolType, action: ActionType, 
                 context: Dict[str, Any]) -> StepResult:
-        """Execute tool action and return result"""
+        """Execute tool action and return result as TypedDict"""
         raise NotImplementedError
 
 class GmailNode(ExecutionNode):
@@ -65,29 +65,31 @@ class GmailNode(ExecutionNode):
             else:
                 logger.error(f"❌ Gmail step failed: {result.get('error', 'Unknown error')}")
             
-            return StepResult(
-                step_index=step_index,
-                tool=tool,
-                action=action,
-                status="completed" if result.get("success") else "failed",
-                raw_output=result,
-                extracted_data={},
-                error_message=result.get("error") if not result.get("success") else None
-            )
+            # ✅ FIXED: Return StepResult as TypedDict
+            return {
+                "step_index": step_index,
+                "tool": tool,
+                "action": action,
+                "status": "completed" if result.get("success") else "failed",
+                "raw_output": result,
+                "extracted_data": {},
+                "error_message": result.get("error") if not result.get("success") else None
+            }
             
         except Exception as e:
             logger.error(f"❌ Exception in Gmail step {step_index}: {str(e)}")
             logger.error(traceback.format_exc())
             
-            return StepResult(
-                step_index=step_index,
-                tool=tool,
-                action=action,
-                status="failed",
-                raw_output={},
-                extracted_data={},
-                error_message=str(e)
-            )
+            # ✅ FIXED: Return failed StepResult as TypedDict
+            return {
+                "step_index": step_index,
+                "tool": tool,
+                "action": action,
+                "status": "failed",
+                "raw_output": {},
+                "extracted_data": {},
+                "error_message": str(e)
+            }
     
     def _prepare_parameters(self, action: ActionType, context: Dict[str, Any]) -> Dict[str, Any]:
         """Prepare parameters for tool method call with parameter mapping"""
@@ -149,13 +151,13 @@ class GmailNode(ExecutionNode):
             if action == ActionType.SEND_EMAIL:
                 logger.info("📧 Calling send_email method")
                 result = self.tool.send_email(client, **params)
-            elif action == ActionType.READ_EMAILS:  # Updated from READ_RECENT_EMAILS
+            elif action == ActionType.READ_EMAILS:
                 logger.info("📬 Calling read_recent_emails method")
                 result = self.tool.read_recent_emails(client, **params)
-            elif action == ActionType.SEARCH_EMAILS:  # Updated from SEARCH_EMAILS
+            elif action == ActionType.SEARCH_EMAILS:
                 logger.info("🔍 Calling search_emails_by_filters method")
                 result = self.tool.search_emails_by_filters(client, **params)
-            elif action == ActionType.GET_THREADS:  # Updated from GET_EMAIL_THREADS
+            elif action == ActionType.GET_THREADS:
                 logger.info("🧵 Calling get_email_threads method")
                 result = self.tool.get_email_threads(client, **params)
             else:
@@ -212,29 +214,31 @@ class CalendarNode(ExecutionNode):
             else:
                 logger.error(f"❌ Calendar step failed: {result.get('error', 'Unknown error')}")
             
-            return StepResult(
-                step_index=step_index,
-                tool=tool,
-                action=action,
-                status="completed" if result.get("success") else "failed",
-                raw_output=result,
-                extracted_data={},
-                error_message=result.get("error") if not result.get("success") else None
-            )
+            # ✅ FIXED: Return StepResult as TypedDict
+            return {
+                "step_index": step_index,
+                "tool": tool,
+                "action": action,
+                "status": "completed" if result.get("success") else "failed",
+                "raw_output": result,
+                "extracted_data": {},
+                "error_message": result.get("error") if not result.get("success") else None
+            }
             
         except Exception as e:
             logger.error(f"❌ Exception in Calendar step {step_index}: {str(e)}")
             logger.error(traceback.format_exc())
             
-            return StepResult(
-                step_index=step_index,
-                tool=tool,
-                action=action,
-                status="failed",
-                raw_output={},
-                extracted_data={},
-                error_message=str(e)
-            )
+            # ✅ FIXED: Return failed StepResult as TypedDict
+            return {
+                "step_index": step_index,
+                "tool": tool,
+                "action": action,
+                "status": "failed",
+                "raw_output": {},
+                "extracted_data": {},
+                "error_message": str(e)
+            }
     
     def _prepare_parameters(self, action: ActionType, context: Dict[str, Any]) -> Dict[str, Any]:
         """Prepare parameters for calendar tool with parameter mapping"""
@@ -315,7 +319,7 @@ class CalendarNode(ExecutionNode):
             elif action == ActionType.DELETE_EVENT:
                 logger.info("🗑️ Calling delete_event method")
                 result = self.tool.delete_event(client, **params)
-            elif action == ActionType.GET_EVENT:  # Updated from GET_MEET_LINK
+            elif action == ActionType.GET_EVENT:
                 logger.info("🔗 Calling get_meet_link_from_event method")
                 result = self.tool.get_meet_link_from_event(client, **params)
             else:
@@ -372,29 +376,31 @@ class DriveNode(ExecutionNode):
             else:
                 logger.error(f"❌ Drive step failed: {result.get('error', 'Unknown error')}")
             
-            return StepResult(
-                step_index=step_index,
-                tool=tool,
-                action=action,
-                status="completed" if result.get("success") else "failed",
-                raw_output=result,
-                extracted_data={},
-                error_message=result.get("error") if not result.get("success") else None
-            )
+            # ✅ FIXED: Return StepResult as TypedDict
+            return {
+                "step_index": step_index,
+                "tool": tool,
+                "action": action,
+                "status": "completed" if result.get("success") else "failed",
+                "raw_output": result,
+                "extracted_data": {},
+                "error_message": result.get("error") if not result.get("success") else None
+            }
             
         except Exception as e:
             logger.error(f"❌ Exception in Drive step {step_index}: {str(e)}")
             logger.error(traceback.format_exc())
             
-            return StepResult(
-                step_index=step_index,
-                tool=tool,
-                action=action,
-                status="failed",
-                raw_output={},
-                extracted_data={},
-                error_message=str(e)
-            )
+            # ✅ FIXED: Return failed StepResult as TypedDict
+            return {
+                "step_index": step_index,
+                "tool": tool,
+                "action": action,
+                "status": "failed",
+                "raw_output": {},
+                "extracted_data": {},
+                "error_message": str(e)
+            }
     
     def _prepare_parameters(self, action: ActionType, context: Dict[str, Any]) -> Dict[str, Any]:
         """Prepare parameters for drive tool with parameter mapping"""
@@ -422,7 +428,7 @@ class DriveNode(ExecutionNode):
                     mapped_params["email_addresses"] = shared_context["meeting_attendees"]
                     logger.info(f"✅ Added share recipients from shared context: {len(mapped_params['email_addresses']) if isinstance(mapped_params['email_addresses'], list) else 1}")
             
-            elif action == ActionType.LIST_FILES:  # Updated from LIST_RECENT_FILES
+            elif action == ActionType.LIST_FILES:
                 logger.info("📁 Processing LIST_FILES parameters")
                 
                 # Handle recent parameter for backwards compatibility
@@ -457,7 +463,7 @@ class DriveNode(ExecutionNode):
             elif action == ActionType.SHARE_FILE:
                 logger.info("🔗 Calling share_file method")
                 result = self.tool.share_file(client, **params)
-            elif action == ActionType.LIST_FILES:  # Updated from LIST_RECENT_FILES
+            elif action == ActionType.LIST_FILES:
                 logger.info("📋 Calling list_recent_files method")
                 result = self.tool.list_recent_files(client, **params)
             else:

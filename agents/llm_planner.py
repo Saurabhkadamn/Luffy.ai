@@ -18,7 +18,7 @@ class LLMPlanner:
         
         try:
             # Create LLM instance with standardized config
-            logger.info("🔧 Creating NVIDIA ChatNVIDIA instance")
+            logger.info("🔧 Creating ChatNVIDIA instance")
             logger.info(f"🔑 Using API key: {'*' * 20}{settings.NVIDIA_API_KEY[-4:] if settings.NVIDIA_API_KEY else 'MISSING'}")
             
             self.llm = ChatNVIDIA(
@@ -79,8 +79,8 @@ class LLMPlanner:
             
             logger.info("🏗️ Converting to ExecutionPlan object")
             execution_plan = self._parse_plan(plan_data)
-            logger.info(f"✅ ExecutionPlan created: {execution_plan.intent}")
-            logger.info(f"📋 Plan has {len(execution_plan.steps)} steps")
+            logger.info(f"✅ ExecutionPlan created: {execution_plan['intent']}")
+            logger.info(f"📋 Plan has {len(execution_plan['steps'])} steps")
             
             return execution_plan
             
@@ -88,23 +88,23 @@ class LLMPlanner:
             logger.error(f"❌ JSON parsing error: {str(e)}")
             logger.error(f"📄 Raw response that failed to parse: {response_content}")
             
-            # Try to extract JSON from response if it's wrapped in other text
+            # Try to extract JSON from response
             try:
                 logger.info("🔍 Attempting to extract JSON from response")
                 json_str = self._extract_json_from_text(response_content)
                 
                 if json_str:
                     logger.info(f"🔍 Extracted JSON: {json_str[:200]}...")
+                    
                     plan_data = json.loads(json_str)
                     logger.info("✅ Extracted JSON parsed successfully")
                     
                     execution_plan = self._parse_plan(plan_data)
-                    logger.info(f"✅ ExecutionPlan created from extracted JSON: {execution_plan.intent}")
+                    logger.info(f"✅ ExecutionPlan created from extracted JSON: {execution_plan['intent']}")
                     return execution_plan
                 else:
-                    logger.error("❌ No valid JSON found in response")
-                    raise e
-                    
+                    logger.error("❌ No JSON boundaries found in response")
+                    return self._create_fallback_plan(user_request, f"JSON parsing error: {str(e)}")
             except Exception as extract_error:
                 logger.error(f"❌ JSON extraction also failed: {str(extract_error)}")
                 return self._create_fallback_plan(user_request, f"JSON parsing error: {str(e)}")
@@ -367,7 +367,7 @@ RESPOND WITH ONLY THE JSON OBJECT:
         return prompt
 
     def _parse_plan(self, plan_data: Dict[str, Any]) -> ExecutionPlan:
-        """Convert JSON plan to ExecutionPlan object with logging"""
+        """Convert JSON plan to ExecutionPlan TypedDict with logging"""
         
         logger.info("🏗️ Parsing plan data to ExecutionPlan")
         logger.info(f"📊 Plan data structure: {list(plan_data.keys())}")
@@ -381,38 +381,39 @@ RESPOND WITH ONLY THE JSON OBJECT:
                 logger.info(f"🔄 Processing step {i+1}: {step_data.get('description', 'No description')}")
                 
                 try:
-                    # Ensure required fields exist with defaults
-                    step = ExecutionStep(
-                        step_index=step_data["step_index"],
-                        tool=ToolType(step_data["tool"]),
-                        action=ActionType(step_data["action"]),
-                        description=step_data.get("description", f"Execute {step_data['action']} action"),
-                        parameters=step_data.get("parameters", {}),
-                        dependencies=step_data.get("dependencies", []),
-                        expected_outputs=step_data.get("expected_outputs", [])
-                    )
+                    # ✅ FIXED: Create ExecutionStep as TypedDict, not dataclass
+                    step = {
+                        "step_index": step_data["step_index"],
+                        "tool": ToolType(step_data["tool"]),
+                        "action": ActionType(step_data["action"]),
+                        "description": step_data.get("description", f"Execute {step_data['action']} action"),
+                        "parameters": step_data.get("parameters", {}),
+                        "dependencies": step_data.get("dependencies", []),
+                        "expected_outputs": step_data.get("expected_outputs", [])
+                    }
                     steps.append(step)
-                    logger.info(f"✅ Step {i+1} parsed successfully: {step.tool.value} - {step.action.value}")
-                    logger.info(f"📋 Step {i+1} parameters: {list(step.parameters.keys())}")
+                    logger.info(f"✅ Step {i+1} parsed successfully: {step['tool'].value} - {step['action'].value}")
+                    logger.info(f"📋 Step {i+1} parameters: {list(step['parameters'].keys())}")
                     
                     # Log Gmail date_range specifically for debugging
-                    if step.tool.value == "gmail_tool" and "date_range" in step.parameters:
-                        logger.info(f"📅 Gmail date_range for step {i+1}: {step.parameters['date_range']}")
+                    if step['tool'].value == "gmail_tool" and "date_range" in step['parameters']:
+                        logger.info(f"📅 Gmail date_range for step {i+1}: {step['parameters']['date_range']}")
                     
                 except Exception as step_error:
                     logger.error(f"❌ Error parsing step {i+1}: {str(step_error)}")
                     logger.error(f"📊 Step data: {step_data}")
                     raise
             
-            logger.info("🏗️ Creating ExecutionPlan object")
-            execution_plan = ExecutionPlan(
-                intent=plan_data.get("intent", "Execute user request"),
-                steps=steps,
-                estimated_duration=plan_data.get("estimated_duration", "Unknown"),
-                requires_confirmation=plan_data.get("requires_confirmation", False)
-            )
+            logger.info("🏗️ Creating ExecutionPlan TypedDict")
+            # ✅ FIXED: Create ExecutionPlan as TypedDict, not dataclass
+            execution_plan = {
+                "intent": plan_data.get("intent", "Execute user request"),
+                "steps": steps,
+                "estimated_duration": plan_data.get("estimated_duration", "Unknown"),
+                "requires_confirmation": plan_data.get("requires_confirmation", False)
+            }
             
-            logger.info(f"✅ ExecutionPlan created successfully: {execution_plan.intent}")
+            logger.info(f"✅ ExecutionPlan created successfully: {execution_plan['intent']}")
             return execution_plan
             
         except Exception as e:
@@ -427,22 +428,24 @@ RESPOND WITH ONLY THE JSON OBJECT:
         logger.info(f"📋 Original request: {user_request}")
         
         try:
-            fallback_step = ExecutionStep(
-                step_index=1,
-                tool=ToolType.GMAIL,
-                action=ActionType.READ_EMAILS,  # Updated to use simplified action
-                description=f"Fallback: Check recent emails (Planning error: {error})",
-                parameters={"max_results": 5},
-                dependencies=[],
-                expected_outputs=["emails"]
-            )
+            # ✅ FIXED: Create fallback step as TypedDict, not dataclass
+            fallback_step = {
+                "step_index": 1,
+                "tool": ToolType.GMAIL,
+                "action": ActionType.READ_EMAILS,
+                "description": f"Fallback: Check recent emails (Planning error: {error})",
+                "parameters": {"max_results": 5},
+                "dependencies": [],
+                "expected_outputs": ["emails"]
+            }
             
-            fallback_plan = ExecutionPlan(
-                intent=f"Fallback plan for: {user_request}",
-                steps=[fallback_step],
-                estimated_duration="10 seconds",
-                requires_confirmation=False
-            )
+            # ✅ FIXED: Create fallback plan as TypedDict, not dataclass
+            fallback_plan = {
+                "intent": f"Fallback plan for: {user_request}",
+                "steps": [fallback_step],
+                "estimated_duration": "10 seconds",
+                "requires_confirmation": False
+            }
             
             logger.info("✅ Fallback plan created successfully")
             return fallback_plan
