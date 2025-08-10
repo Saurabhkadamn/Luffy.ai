@@ -127,12 +127,12 @@ class GraphBuilder:
             raise
     
     def _create_step_node(self, step):
-        """Create node function that returns proper state updates (not full state)"""
+        """✅ FIXED: Create node function that returns proper state updates (not full state)"""
         
         logger.info(f"🔧 Creating step node for step {step['step_index']}: {step['description']}")
         
         def step_node(state: WorkflowState) -> Dict[str, Any]:
-            """Execute single step and return state updates (not full state)"""
+            """Execute single step and return state updates only"""
             
             logger.info(f"⚡ Executing step {step['step_index']}: {step['description']}")
             logger.info(f"🔧 Tool: {step['tool'].value}, Action: {step['action'].value}")
@@ -158,7 +158,7 @@ class GraphBuilder:
                 )
                 logger.info(f"✅ Step {step['step_index']} execution completed with status: {step_result['status']}")
                 
-                # ✅ FIXED: Return only state updates, not full state
+                # ✅ FIXED: Return only state updates, not full state - LangGraph will merge these
                 if step_result['status'] == "completed":
                     logger.info(f"✅ Step {step['step_index']} completed successfully")
                     
@@ -176,9 +176,10 @@ class GraphBuilder:
                     
                     # Calculate next step and status
                     next_step = state['current_step'] + 1
-                    new_status = "completed" if next_step > len(state['plan']['steps']) else "executing"
+                    total_steps = len(state['plan']['steps'])
+                    new_status = "completed" if next_step > total_steps else "executing"
                     
-                    # Return state updates (will be merged by reducers)
+                    # ✅ RETURN STATE UPDATES ONLY - LangGraph reducers will merge these automatically
                     return {
                         "step_results": {step_result['step_index']: step_result},
                         "shared_context": {

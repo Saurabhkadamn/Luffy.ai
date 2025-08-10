@@ -37,6 +37,9 @@ class ExecutionStep(TypedDict):
     parameters: Dict[str, Any]
     dependencies: List[int]
     expected_outputs: List[str]
+    
+    # ✅ NEW: Optional simple routing field for conditional logic
+    routing_logic: Optional[Dict[str, Any]]  # Simple routing conditions if needed
 
 class ExecutionPlan(TypedDict):
     intent: str
@@ -99,7 +102,7 @@ def add_execution_log(existing: List[str], new: List[str]) -> List[str]:
         return existing
     return existing + new
 
-# ✅ FIXED: WorkflowState now uses TypedDict with proper reducers
+# ✅ KEEP: WorkflowState uses TypedDict with proper reducers
 class WorkflowState(TypedDict):
     plan: ExecutionPlan
     step_results: Annotated[Dict[int, StepResult], merge_step_results]

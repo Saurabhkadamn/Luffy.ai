@@ -78,11 +78,10 @@ class AgentOrchestrator:
             logger.info("⚡ Step 3: Executing with native LangGraph streaming")
             yield "⚡ **Starting execution with checkpointing...**"
             
-            # ✅ FIXED: Use native LangGraph streaming with proper config
+            # ✅ FIXED: Use simple LangGraph config structure
             config = {
                 "configurable": {
-                    "thread_id": f"workflow_{user_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-                    "checkpoint_ns": "main"
+                    "thread_id": f"user_{user_id}"  # Simple, consistent thread_id
                 }
             }
             
