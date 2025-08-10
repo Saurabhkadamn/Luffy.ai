@@ -24,7 +24,7 @@ class ExecutionNode:
         raise NotImplementedError
 
 class GmailNode(ExecutionNode):
-    """Gmail tool execution node with parameter mapping"""
+    """Gmail tool execution node with enhanced parameter mapping"""
     
     def __init__(self, auth_manager):
         super().__init__(auth_manager)
@@ -48,12 +48,12 @@ class GmailNode(ExecutionNode):
             
             logger.info("✅ Gmail client authenticated successfully")
             
-            # Prepare and map parameters
+            # Prepare and map parameters with enhanced error handling
             logger.info("⚙️ Preparing and mapping parameters for Gmail action")
             params = self._prepare_parameters(action, context)
             logger.info(f"✅ Parameters prepared and mapped: {list(params.keys())}")
             
-            # Execute action
+            # Execute action with parameter validation
             logger.info(f"🚀 Executing Gmail action: {action.value}")
             result = self._call_tool_method(action, client, params)
             logger.info(f"✅ Gmail action completed: {result.get('success', False)}")
@@ -92,7 +92,7 @@ class GmailNode(ExecutionNode):
             }
     
     def _prepare_parameters(self, action: ActionType, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Prepare parameters for tool method call with parameter mapping"""
+        """Prepare parameters for tool method call with enhanced parameter mapping"""
         
         logger.info(f"⚙️ Preparing Gmail parameters for action: {action.value}")
         
@@ -108,41 +108,84 @@ class GmailNode(ExecutionNode):
             mapped_params = self.parameter_mapper.map_gmail_params(base_params)
             logger.info(f"✅ Parameters after mapping: {list(mapped_params.keys())}")
             
+            # ✅ FIX: Validate parameters for specific actions
+            validated_params = self._validate_action_parameters(action, mapped_params)
+            logger.info(f"✅ Parameters after validation: {list(validated_params.keys())}")
+            
             # Smart parameter resolution from context
             if action == ActionType.SEND_EMAIL:
                 logger.info("📧 Processing SEND_EMAIL parameters")
                 
                 # If 'to' is not specified, try to get from shared context
-                if "to" not in mapped_params and "meeting_attendees" in shared_context:
-                    mapped_params["to"] = shared_context["meeting_attendees"]
-                    logger.info(f"✅ Added recipients from shared context: {len(mapped_params['to']) if isinstance(mapped_params['to'], list) else 1}")
+                if "to" not in validated_params and "meeting_attendees" in shared_context:
+                    validated_params["to"] = shared_context["meeting_attendees"]
+                    logger.info(f"✅ Added recipients from shared context: {len(validated_params['to']) if isinstance(validated_params['to'], list) else 1}")
                 
                 # If subject/body reference meeting details
                 if "meeting_details" in shared_context:
                     meeting = shared_context["meeting_details"]
                     logger.info("🔄 Processing meeting details templates")
                     
-                    if "{{meeting_title}}" in mapped_params.get("subject", ""):
-                        old_subject = mapped_params["subject"]
-                        mapped_params["subject"] = mapped_params["subject"].replace("{{meeting_title}}", meeting.get("title", "Meeting"))
-                        logger.info(f"📝 Updated subject template: {old_subject} -> {mapped_params['subject']}")
+                    if "{{meeting_title}}" in validated_params.get("subject", ""):
+                        old_subject = validated_params["subject"]
+                        validated_params["subject"] = validated_params["subject"].replace("{{meeting_title}}", meeting.get("title", "Meeting"))
+                        logger.info(f"📝 Updated subject template: {old_subject} -> {validated_params['subject']}")
                         
-                    if "{{meeting_link}}" in mapped_params.get("body", ""):
+                    if "{{meeting_link}}" in validated_params.get("body", ""):
                         meeting_link = shared_context.get("meeting_link", "")
-                        old_body = mapped_params["body"]
-                        mapped_params["body"] = mapped_params["body"].replace("{{meeting_link}}", meeting_link)
+                        old_body = validated_params["body"]
+                        validated_params["body"] = validated_params["body"].replace("{{meeting_link}}", meeting_link)
                         logger.info(f"🔗 Updated body with meeting link: {len(meeting_link)} chars")
             
-            logger.info(f"✅ Gmail parameters fully prepared: {list(mapped_params.keys())}")
-            return mapped_params
+            logger.info(f"✅ Gmail parameters fully prepared: {list(validated_params.keys())}")
+            return validated_params
             
         except Exception as e:
             logger.error(f"❌ Error preparing Gmail parameters: {str(e)}")
             logger.error(traceback.format_exc())
             return context.get("step_parameters", {})
     
+    def _validate_action_parameters(self, action: ActionType, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate parameters for specific Gmail actions"""
+        
+        logger.info(f"🔍 Validating parameters for action: {action.value}")
+        
+        try:
+            validated_params = params.copy()
+            
+            # Define valid parameters for each action
+            valid_params = {
+                ActionType.SEND_EMAIL: ['to', 'subject', 'body', 'cc', 'bcc', 'attachments'],
+                ActionType.READ_EMAILS: ['max_results', 'query', 'include_attachments'],
+                ActionType.SEARCH_EMAILS: ['sender', 'date_range', 'keywords', 'has_attachment', 'include_attachments', 'max_results'],
+                ActionType.GET_THREADS: ['thread_id', 'query', 'include_attachments']
+            }
+            
+            if action in valid_params:
+                allowed_params = valid_params[action]
+                
+                # Remove invalid parameters
+                invalid_params = []
+                for param_key in list(validated_params.keys()):
+                    if param_key not in allowed_params:
+                        invalid_params.append(param_key)
+                        validated_params.pop(param_key)
+                
+                if invalid_params:
+                    logger.warning(f"⚠️ Removed invalid parameters for {action.value}: {invalid_params}")
+                
+                logger.info(f"✅ Validation complete for {action.value}: {list(validated_params.keys())}")
+            else:
+                logger.warning(f"⚠️ No validation rules for action: {action.value}")
+            
+            return validated_params
+            
+        except Exception as e:
+            logger.error(f"❌ Error validating parameters: {str(e)}")
+            return params
+    
     def _call_tool_method(self, action: ActionType, client, params: Dict[str, Any]):
-        """Call appropriate tool method with logging"""
+        """Call appropriate tool method with enhanced error handling"""
         
         logger.info(f"🔧 Calling Gmail tool method for action: {action.value}")
         logger.info(f"📋 Final parameters: {list(params.keys())}")
@@ -167,6 +210,28 @@ class GmailNode(ExecutionNode):
             logger.info(f"✅ Gmail tool method completed: {action.value}")
             return result
             
+        except TypeError as e:
+            if "unexpected keyword argument" in str(e):
+                logger.error(f"❌ Parameter mismatch for {action.value}: {str(e)}")
+                logger.error(f"📋 Attempted parameters: {list(params.keys())}")
+                
+                # Try to call with minimal required parameters
+                logger.info("🔄 Attempting fallback with minimal parameters")
+                try:
+                    if action == ActionType.READ_EMAILS:
+                        # Only use supported parameters
+                        minimal_params = {k: v for k, v in params.items() if k in ['max_results', 'query', 'include_attachments']}
+                        logger.info(f"🔄 Fallback parameters: {list(minimal_params.keys())}")
+                        result = self.tool.read_recent_emails(client, **minimal_params)
+                        logger.info("✅ Fallback successful")
+                        return result
+                    else:
+                        raise e
+                except Exception as fallback_error:
+                    logger.error(f"❌ Fallback also failed: {str(fallback_error)}")
+                    raise e
+            else:
+                raise e
         except Exception as e:
             logger.error(f"❌ Error calling Gmail tool method: {str(e)}")
             logger.error(traceback.format_exc())

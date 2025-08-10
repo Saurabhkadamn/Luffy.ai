@@ -5,13 +5,13 @@ from typing import Dict, Any, List, Union, Optional
 logger = logging.getLogger(__name__)
 
 class ParameterMapper:
-    """Production-ready parameter mapper for LLM→Tool parameter translation with Gmail date fixes"""
+    """Production-ready parameter mapper for LLM→Tool parameter translation with Gmail fixes"""
     
     def __init__(self):
         logger.info("🔧 ParameterMapper initialized")
     
     def map_gmail_params(self, llm_params: Dict[str, Any]) -> Dict[str, Any]:
-        """Map LLM parameters to Gmail tool parameters"""
+        """Map LLM parameters to Gmail tool parameters - FIXED for read_recent_emails compatibility"""
         
         logger.info(f"📧 Mapping Gmail parameters: {list(llm_params.keys())}")
         
@@ -28,9 +28,15 @@ class ParameterMapper:
                         mapped_params["date_range"] = date_range
                         logger.info(f"📅 Converted query '{value}' → date_range {date_range}")
                     else:
-                        # If not a date query, convert to keywords
-                        mapped_params["keywords"] = value
-                        logger.info(f"🔍 Converted query '{value}' → keywords")
+                        # ✅ FIX: Keep as 'query' for read_recent_emails, not 'keywords'
+                        mapped_params["query"] = value
+                        logger.info(f"🔍 Kept query '{value}' as query parameter")
+                
+                # ✅ FIX: Handle keywords parameter properly
+                elif key == "keywords" and isinstance(value, str):
+                    # Gmail tools use 'query' parameter, not 'keywords'
+                    mapped_params["query"] = value
+                    logger.info(f"🔍 Converted keywords '{value}' → query")
                 
                 # Thread parameter mapping
                 elif key == "thread_ids" and isinstance(value, list) and value:
@@ -43,20 +49,24 @@ class ParameterMapper:
                 
                 # Search filters mapping
                 elif key == "search_query":
-                    mapped_params["keywords"] = value
-                    logger.info(f"🔍 Converted search_query → keywords")
+                    mapped_params["query"] = value  # ✅ FIX: Use 'query' not 'keywords'
+                    logger.info(f"🔍 Converted search_query → query")
                 
                 elif key == "from_email":
                     mapped_params["sender"] = value
                     logger.info(f"👤 Converted from_email → sender")
                 
-                # Direct mappings (keep as-is)
-                elif key in ["sender", "keywords", "has_attachment", "max_results", 
-                            "include_attachments", "date_range", "thread_id"]:
+                # Direct mappings (keep as-is) - ✅ REMOVED 'keywords' from valid params
+                elif key in ["sender", "has_attachment", "max_results", 
+                            "include_attachments", "date_range", "thread_id", "query"]:
                     mapped_params[key] = value
                     logger.info(f"✅ Direct mapping: {key}")
                 
-                # Unknown parameter - log warning but include
+                # ✅ FIX: Skip unsupported parameters and warn
+                elif key in ["keywords"]:
+                    logger.warning(f"⚠️ Skipping unsupported Gmail parameter '{key}' - converted to 'query' earlier")
+                
+                # Unknown parameter - log warning but include if potentially valid
                 else:
                     mapped_params[key] = value
                     logger.warning(f"⚠️ Unknown Gmail parameter '{key}', including as-is")
@@ -115,7 +125,7 @@ class ParameterMapper:
                 
                 # Direct mappings
                 elif key in ["title", "description", "location", "attendees", "start_time", 
-                            "end_time", "timezone", "event_id", "max_results"]:
+                            "end_time", "timezone", "event_id", "max_results", "include_meet"]:
                     mapped_params[key] = value
                     logger.info(f"✅ Direct mapping: {key}")
                 
@@ -225,6 +235,11 @@ class ParameterMapper:
                 logger.info(f"📅 Last week: {start} to {end}")
                 return (start, end)
             
+            # ✅ FIX: Check if query is already a Gmail date query format
+            elif "after:" in query_lower and "before:" in query_lower:
+                logger.info(f"📝 Query '{query}' is already a Gmail date query format")
+                return None  # Return None so it gets treated as a regular query
+            
             else:
                 logger.info(f"📝 Query '{query}' is not a date query")
                 return None
@@ -297,4 +312,4 @@ class ParameterMapper:
             
         except Exception as e:
             logger.error(f"❌ Error getting date context: {str(e)}")
-            return {"current_date": "2025-07-28", "error": str(e)}
+            return {"current_date": "2025-08-11", "error": str(e)}
